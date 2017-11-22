@@ -312,6 +312,9 @@ class Network(util.DaemonThread):
         for request in requests:
             message_id = self.queue_request(request[0], request[1])
             self.unanswered_requests[message_id] = request
+        if self.interface.ping_required():
+            params = [ELECTRUM_VERSION, PROTOCOL_VERSION]
+            self.queue_request('server.version', params, self.interface)
         self.queue_request('server.banner', [])
         self.queue_request('server.donation_address', [])
         self.queue_request('server.peers.subscribe', [])
@@ -322,8 +325,9 @@ class Network(util.DaemonThread):
 
     def request_fee_estimates(self):
         self.config.requested_fee_estimates()
-        for i in bitcoin.FEE_TARGETS:
-            self.queue_request('blockchain.estimatefee', [i])
+        self.queue_request('mempool.get_fee_histogram', [])
+        #for i in bitcoin.FEE_TARGETS:
+        #    self.queue_request('blockchain.estimatefee', [i])
 
     def get_status_value(self, key):
         if key == 'status':
@@ -331,7 +335,7 @@ class Network(util.DaemonThread):
         elif key == 'banner':
             value = self.banner
         elif key == 'fee':
-            value = self.config.fee_estimates
+            value = self.config.mempool_fees
         elif key == 'updated':
             value = (self.get_local_height(), self.get_server_height())
         elif key == 'servers':
@@ -543,6 +547,11 @@ class Network(util.DaemonThread):
         elif method == 'server.donation_address':
             if error is None:
                 self.donation_address = result
+        elif method == 'mempool.get_fee_histogram':
+            if error is None:
+                self.print_error(result)
+                self.config.mempool_fees = result
+                self.notify('fee')
         elif method == 'blockchain.estimatefee':
             if error is None and result > 0:
                 i = params[0]

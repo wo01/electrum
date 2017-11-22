@@ -283,7 +283,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.need_update.set()
             self.gui_object.network_updated_signal_obj.network_updated_signal \
                 .emit(event, args)
-
         elif event == 'new_transaction':
             self.tx_notifications.append(args[0])
             self.notify_transactions_signal.emit()
@@ -305,6 +304,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             if self.config.is_dynfee():
                 self.fee_slider.update()
                 self.do_update_fee()
+            # todo: update only unconf
+            self.history_list.update()
         else:
             self.print_error("unexpected network_qt signal:", event, args)
 
@@ -2645,6 +2646,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         dynfee_cb.setToolTip(_("Use fees recommended by the server."))
         fee_widgets.append((dynfee_cb, None))
         dynfee_cb.stateChanged.connect(on_dynfee)
+
+        self.fee_type = self.config.get('dynamic_fee', 0)
+        fee_type_label = HelpLabel(_('Fee slider targets') + ':', '')
+        fee_type_combo = QComboBox()
+        fee_type_combo.addItems([_('static'), _('ETA'), _('Mempool')])
+        fee_type_combo.setCurrentIndex(self.fee_type)
+        def on_fee_type(x):
+            self.fee_slider_type = x
+            self.config.set_key('dynamix_fees', x)
+            self.fee_slider.update()
+        fee_type_combo.currentIndexChanged.connect(on_fee_type)
+        fee_widgets.append((fee_type_label, fee_type_combo))
 
         feebox_cb = QCheckBox(_('Edit fees manually'))
         feebox_cb.setChecked(self.config.get('show_fee', False))

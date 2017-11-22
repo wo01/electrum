@@ -29,15 +29,15 @@ class FeeSlider(QSlider):
             self.callback(self.dyn, pos, fee_rate)
 
     def get_tooltip(self, pos, fee_rate):
-        from electrum.util import fee_levels
         rate_str = self.window.format_fee_rate(fee_rate) if fee_rate else _('unknown')
         if self.dyn:
-            tooltip = fee_levels[pos] + '\n' + rate_str
+            depth = self.config.depth_target(pos)
+            tooltip = self.config.fee_tooltip(depth) + '\n' + rate_str
         else:
             tooltip = 'Fixed rate: ' + rate_str
             if self.config.has_fee_estimates():
                 i = self.config.reverse_dynfee(fee_rate)
-                tooltip += '\n' + (_('Low fee') if i < 0 else 'Within %d blocks'%i)
+                tooltip += '\n' + self.config.fee_tooltip(i)
         return tooltip
 
     def update(self):
@@ -46,7 +46,7 @@ class FeeSlider(QSlider):
             if self.dyn:
                 pos = self.config.get('fee_level', 2)
                 fee_rate = self.config.dynfee(pos)
-                self.setRange(0, 4)
+                self.setRange(0, len(self.config.fee_targets())-1)
                 self.setValue(pos)
             else:
                 fee_rate = self.config.fee_per_kb()

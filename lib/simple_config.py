@@ -8,7 +8,10 @@ from copy import deepcopy
 from .util import (user_dir, print_error, PrintError,
                    NoDynamicFeeEstimates)
 
-from .bitcoin import MAX_FEE_RATE, FEE_TARGETS
+from .bitcoin import MAX_FEE_RATE
+
+FEE_ETA_TARGETS = [25, 10, 5, 2]
+FEE_DEPTH_TARGETS = [10000000, 5000000, 2000000, 1000000, 500000, 200000, 100000]
 
 config = None
 
@@ -48,6 +51,7 @@ class SimpleConfig(PrintError):
         # a thread-safe way.
         self.lock = threading.RLock()
 
+        self.mempool_fees = {}
         self.fee_estimates = {}
         self.fee_estimates_last_updated = {}
         self.last_time_fee_estimates_requested = 0  # zero ensures immediate fees
@@ -263,27 +267,41 @@ class SimpleConfig(PrintError):
             f = MAX_FEE_RATE
         return f
 
-    def dynfee(self, i):
-        if i < 4:
-            j = FEE_TARGETS[i]
-            fee = self.fee_estimates.get(j)
+    def fee_to_depth(self, target_fee):
+        depth = 0
+        for fee, s in self.mempool_fees:
+            depth += s
+            if fee < target_fee:
+                break
         else:
-            assert i == 4
-            fee = self.fee_estimates.get(2)
-            if fee is not None:
-                fee += fee/2
-        if fee is not None:
-            fee = min(5*MAX_FEE_RATE, fee)
+            return 0
+        return depth
+
+    def depth_to_fee(self, target):
+        depth = 0
+        for fee, s in self.mempool_fees:
+            depth += s
+            if depth > target:
+                break
+        else:
+            return 0
         return fee
 
+    def depth_target(self, i):
+        return FEE_DEPTH_TARGETS[i]
+
+    def fee_targets(self):
+        return FEE_DEPTH_TARGETS
+
+    def dynfee(self, i):
+        target = self.depth_target(i)
+        return self.depth_to_fee(target) * 1000
+
     def reverse_dynfee(self, fee_per_kb):
-        import operator
-        l = list(self.fee_estimates.items()) + [(1, self.dynfee(4))]
-        dist = map(lambda x: (x[0], abs(x[1] - fee_per_kb)), l)
-        min_target, min_value = min(dist, key=operator.itemgetter(1))
-        if fee_per_kb < self.fee_estimates.get(25)/2:
-            min_target = -1
-        return min_target
+        return self.fee_to_depth(fee_per_kb // 1000)
+
+    def fee_tooltip(self, depth):
+        return "%.1f MB from tip"%(depth/1000000)
 
     def static_fee(self, i):
         return self.fee_rates[i]
@@ -293,7 +311,7 @@ class SimpleConfig(PrintError):
         return min(range(len(dist)), key=dist.__getitem__)
 
     def has_fee_estimates(self):
-        return len(self.fee_estimates)==4
+        return bool(self.mempool_fees)
 
     def is_dynfee(self):
         return self.get('dynamic_fees', True)

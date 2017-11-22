@@ -63,13 +63,6 @@ from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .paymentrequest import InvoiceStore
 from .contacts import Contacts
 
-TX_STATUS = [
-    _('Replaceable'),
-    _('Unconfirmed parent'),
-    _('Low fee'),
-    _('Unconfirmed'),
-    _('Not Verified'),
-]
 
 
 
@@ -832,6 +825,14 @@ class Abstract_Wallet(PrintError):
 
     def get_tx_status(self, tx_hash, height, conf, timestamp):
         from .util import format_time
+        TX_STATUS = [
+            _('Replaceable'),
+            _('Unconfirmed parent'),
+            _('Low fee'),
+            _('Unconfirmed'),
+            _('Not Verified'),
+        ]
+        exp_n = False
         if conf == 0:
             tx = self.transactions.get(tx_hash)
             if not tx:
@@ -839,17 +840,13 @@ class Abstract_Wallet(PrintError):
             is_final = tx and tx.is_final()
             fee = self.tx_fees.get(tx_hash)
             if fee and self.network and self.network.config.has_fee_estimates():
-                size = len(tx.raw)/2
-                low_fee = int(self.network.config.dynfee(0)*size/1000)
-                is_lowfee = fee < low_fee * 0.5
-            else:
-                is_lowfee = False
+                size = tx.estimated_size()
+                fee_per_kb = fee * 1000 / size
+                exp_n = self.network.config.reverse_dynfee(fee_per_kb)
             if height==0 and not is_final:
                 status = 0
             elif height < 0:
                 status = 1
-            elif height == 0 and is_lowfee:
-                status = 2
             elif height == 0:
                 status = 3
             else:
@@ -858,6 +855,8 @@ class Abstract_Wallet(PrintError):
             status = 4 + min(conf, 6)
         time_str = format_time(timestamp) if timestamp else _("unknown")
         status_str = TX_STATUS[status] if status < 5 else time_str
+        if exp_n:
+            status_str += ' [%d sat/b, %.2f MB]'%(fee_per_kb//1000, exp_n/1000000)
         return status, status_str
 
     def relayfee(self):
