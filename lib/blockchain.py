@@ -27,7 +27,11 @@ from . import util
 from . import bitcoin
 from .bitcoin import *
 
-#MAX_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
+try:
+    import yescrypt
+except ImportError as e:
+    exit("Please run 'sudo pip3 install https://github.com/wo01/yescrypt_python/archive/master.zip'")
+
 MAX_TARGET = 0x0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 def serialize_header(res):
@@ -56,7 +60,7 @@ def hash_header(header):
         return '0' * 64
     if header.get('prev_block_hash') is None:
         header['prev_block_hash'] = '00'*32
-    return hash_encode(Hash(bfh(serialize_header(header))))
+    return rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)))))
 
 
 blockchains = {}
@@ -150,7 +154,8 @@ class Blockchain(util.PrintError):
         self._size = os.path.getsize(p)//80 if os.path.exists(p) else 0
 
     def verify_header(self, header, prev_hash, target):
-        _hash = hash_header(header)
+#        _hash = hash_header(header)
+        _powhash = rev_hex(bh2u(zny_yescrypt.getPoWHash(bfh(serialize_header(header)))))
         if prev_hash != header.get('prev_block_hash'):
             raise BaseException("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
         if bitcoin.NetworkConstants.TESTNET:
@@ -158,8 +163,8 @@ class Blockchain(util.PrintError):
         bits = self.target_to_bits(target)
         if bits != header.get('bits'):
             raise BaseException("bits mismatch: %s vs %s" % (bits, header.get('bits')))
-        if int('0x' + _hash, 16) > target:
-            raise BaseException("insufficient proof of work: %s vs target %s" % (int('0x' + _hash, 16), target))
+        if int('0x' + _powhash, 16) > target:
+            raise BaseException("insufficient proof of work: %s vs target %s" % (int('0x' + _powhash, 16), target))
 
     def verify_chunk(self, index, data):
         num = len(data) // 80
