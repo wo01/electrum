@@ -253,7 +253,7 @@ class Interface(util.PrintError):
         self.pipe = util.SocketPipe(socket)
         self.pipe.set_timeout(0.0)  # Don't wait for data
         # Dump network messages.  Set at runtime from the console.
-        self.debug = False
+        self.debug = True
         self.unsent_requests = []
         self.unanswered_requests = {}
         # Set last ping to zero to ensure immediate ping
