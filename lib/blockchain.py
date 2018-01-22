@@ -61,7 +61,7 @@ def hash_header(header):
     if header.get('prev_block_hash') is None:
         header['prev_block_hash'] = '00'*32
     return rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)))))
-
+#    return hash_encode(Hash(bfh(serialize_header(header))))
 
 blockchains = {}
 
@@ -154,16 +154,18 @@ class Blockchain(util.PrintError):
         self._size = os.path.getsize(p)//80 if os.path.exists(p) else 0
 
     def verify_header(self, header, prev_hash, target):
-#        _hash = hash_header(header)
-        _powhash = rev_hex(bh2u(zny_yescrypt.getPoWHash(bfh(serialize_header(header)))))
+        _hash = hash_header(header)
+        _powhash = rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)))))
         if prev_hash != header.get('prev_block_hash'):
             raise BaseException("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
         if bitcoin.NetworkConstants.TESTNET:
             return
         bits = self.target_to_bits(target)
         if bits != header.get('bits'):
+            print("bits mismatch: %s vs %s" % (hex(bits), hex(header.get('bits'))))
             raise BaseException("bits mismatch: %s vs %s" % (bits, header.get('bits')))
         if int('0x' + _powhash, 16) > target:
+            print("insufficient proof of work: \n%s vs target\n %s" % (_powhash, hex(target)))
             raise BaseException("insufficient proof of work: %s vs target %s" % (int('0x' + _powhash, 16), target))
 
     def verify_chunk(self, index, data):
@@ -277,6 +279,7 @@ class Blockchain(util.PrintError):
             return hash_header(self.read_header(height))
 
     def get_target(self, index):
+        print("!!!!!!!!!!!!!", index)
         # compute target from chunk x, used in chunk x+1
         if bitcoin.NetworkConstants.TESTNET:
             return 0
@@ -291,7 +294,7 @@ class Blockchain(util.PrintError):
         bits = last.get('bits')
         target = self.bits_to_target(bits)
         nActualTimespan = last.get('timestamp') - first.get('timestamp')
-        nTargetTimespan = 14 * 24 * 60 * 60
+        nTargetTimespan = 14 * 24 * 60 * 600
         nActualTimespan = max(nActualTimespan, nTargetTimespan // 4)
         nActualTimespan = min(nActualTimespan, nTargetTimespan * 4)
         new_target = min(MAX_TARGET, (target * nActualTimespan) // nTargetTimespan)
@@ -299,8 +302,8 @@ class Blockchain(util.PrintError):
 
     def bits_to_target(self, bits):
         bitsN = (bits >> 24) & 0xff
-        if not (bitsN >= 0x03 and bitsN <= 0x1d):
-            raise BaseException("First part of bits should be in [0x03, 0x1d]")
+        if not (bitsN >= 0x03 and bitsN <= 0x1f):
+            raise BaseException("First part of bits should be in [0x03, 0x1f]")
         bitsBase = bits & 0xffffff
         if not (bitsBase >= 0x8000 and bitsBase <= 0x7fffff):
             raise BaseException("Second part of bits should be in [0x8000, 0x7fffff]")
