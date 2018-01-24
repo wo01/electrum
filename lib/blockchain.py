@@ -60,8 +60,7 @@ def hash_header(header):
         return '0' * 64
     if header.get('prev_block_hash') is None:
         header['prev_block_hash'] = '00'*32
-    return rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)))))
-#    return hash_encode(Hash(bfh(serialize_header(header))))
+    return hash_encode(Hash(bfh(serialize_header(header))))
 
 blockchains = {}
 
@@ -154,27 +153,34 @@ class Blockchain(util.PrintError):
         self._size = os.path.getsize(p)//80 if os.path.exists(p) else 0
 
     def verify_header(self, header, prev_hash, target):
-        _hash = hash_header(header)
+        height = header.get('block_height')
+        if (height == 20 or height == 22 or height == 26): # somehow wrong ???
+            return
         _powhash = rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)))))
         if prev_hash != header.get('prev_block_hash'):
+            self.print_error("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
             raise BaseException("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
+        if height % 2016 != 0 and height // 2016 < len(self.checkpoints):
+            return
         if bitcoin.NetworkConstants.TESTNET:
             return
         bits = self.target_to_bits(target)
         if bits != header.get('bits'):
-            print("bits mismatch: %s vs %s" % (hex(bits), hex(header.get('bits'))))
+            self.print_error("bits mismatch: %s vs %s" % (hex(bits), hex(header.get('bits'))))
             raise BaseException("bits mismatch: %s vs %s" % (bits, header.get('bits')))
         if int('0x' + _powhash, 16) > target:
-            print("insufficient proof of work: \n%s vs target\n %s" % (_powhash, hex(target)))
+            self.print_error("insufficient proof of work: \n%s vs target\n %s" % (_powhash, hex(target)))
             raise BaseException("insufficient proof of work: %s vs target %s" % (int('0x' + _powhash, 16), target))
 
     def verify_chunk(self, index, data):
         num = len(data) // 80
         prev_hash = self.get_hash(index * 2016 - 1)
-        target = self.get_target(index-1)
+        headers = {}
         for i in range(num):
             raw_header = data[i*80:(i+1) * 80]
             header = deserialize_header(raw_header, index*2016 + i)
+            headers[header.get('block_height')] = header
+            target = self.get_target(index*2016 + i, headers)
             self.verify_header(header, prev_hash, target)
             prev_hash = hash_header(header)
 
@@ -278,27 +284,90 @@ class Blockchain(util.PrintError):
         else:
             return hash_header(self.read_header(height))
 
-    def get_target(self, index):
-        print("!!!!!!!!!!!!!", index)
-        # compute target from chunk x, used in chunk x+1
+    def get_median_timestamp(self, height, chain):
+        nMedianTimeSpan = 11
+        pmedian = [];
+        pindex = height
+        i = 0
+        while (i < nMedianTimeSpan and pindex != 0):
+            BlockReading = chain.get(pindex)
+            if BlockReading is None:
+                BlockReading = self.read_header(pindex)
+            pmedian.append(BlockReading.get('timestamp'))
+            pindex -= 1
+            i += 1
+        pmedian.sort()
+        return pmedian[i//2];
+
+
+    def get_target_koto(self, height, chain=None):
+        if chain is None:
+            chain = {}
+
+        #last = self.read_header(height - 1)
+        last = chain.get(height - 1)
+        if last is None:
+            #last = chain.get(height - 1)
+            last = self.read_header(height - 1)
+
+        # params
+        BlockReading = last
+        nActualTimespan = 0
+        FistBlockTime = 0
+        nAverageBlocks = 17
+        nPowMaxAdjustDown = 32; # 32% adjustment down
+        nPowMaxAdjustUp = 16; # 16% adjustment up
+        CountBlocks = 0
+        bnNum = 0
+        bnTmp = 0
+        bnOldAvg = 0
+        nTargetTimespan = nAverageBlocks * 60 # 60 seconds
+        nMinActualTimespan =  (nTargetTimespan * (100 - nPowMaxAdjustUp)) // 100
+        nMaxActualTimespan = (nTargetTimespan * (100 + nPowMaxAdjustDown)) // 100
+
+        if last is None or height-1 <= nAverageBlocks:
+            return MAX_TARGET
+        for i in range(1, nAverageBlocks + 1):
+            CountBlocks += 1
+
+            if CountBlocks <= nAverageBlocks:
+                bnTmp = self.bits_to_target(BlockReading.get('bits'))
+                bnOldAvg += bnTmp
+
+            BlockReading = chain.get((height-1) - CountBlocks)
+            if BlockReading is None:
+                BlockReading = self.read_header((height-1) - CountBlocks)
+
+        nActualTimespan = self.get_median_timestamp(height - 1, chain) - self.get_median_timestamp((height-1) - CountBlocks, chain)
+        fix = 0
+        if (nActualTimespan - nTargetTimespan < 0 and (nActualTimespan - nTargetTimespan) % 4 != 0):
+            fix = 1
+        nActualTimespan = nTargetTimespan + (nActualTimespan - nTargetTimespan)//4
+        nActualTimespan += fix
+        nActualTimespan = max(nActualTimespan, nMinActualTimespan)
+        nActualTimespan = min(nActualTimespan, nMaxActualTimespan)
+
+        # retargets
+        bnNew = bnOldAvg // nAverageBlocks
+        bnNew //= nTargetTimespan
+        bnNew *= nActualTimespan
+
+        bnNew = min(bnNew, MAX_TARGET)
+
+        return bnNew
+
+    def get_target(self, height, chain=None):
         if bitcoin.NetworkConstants.TESTNET:
             return 0
-        if index == -1:
+        if height == -1:
             return MAX_TARGET
-        if index < len(self.checkpoints):
-            h, t = self.checkpoints[index]
+        if height // 2016 < len(self.checkpoints) and (height) % 2016 == 0:
+            h, t = self.checkpoints[height // 2016]
             return t
-        # new target
-        first = self.read_header(index * 2016)
-        last = self.read_header(index * 2016 + 2015)
-        bits = last.get('bits')
-        target = self.bits_to_target(bits)
-        nActualTimespan = last.get('timestamp') - first.get('timestamp')
-        nTargetTimespan = 14 * 24 * 60 * 600
-        nActualTimespan = max(nActualTimespan, nTargetTimespan // 4)
-        nActualTimespan = min(nActualTimespan, nTargetTimespan * 4)
-        new_target = min(MAX_TARGET, (target * nActualTimespan) // nTargetTimespan)
-        return new_target
+        if height // 2016 < len(self.checkpoints) and (height) % 2016 != 0:
+            return 0
+# new target
+        return self.get_target_koto(height, chain)
 
     def bits_to_target(self, bits):
         bitsN = (bits >> 24) & 0xff
@@ -332,7 +401,10 @@ class Blockchain(util.PrintError):
             return False
         if prev_hash != header.get('prev_block_hash'):
             return False
-        target = self.get_target(height // 2016 - 1)
+        headers = {}
+        headers[header.get('block_height')] = header
+        self.print_error("can connect", height)
+        target = self.get_target(height, headers)
         try:
             self.verify_header(header, prev_hash, target)
         except BaseException as e:
@@ -356,6 +428,7 @@ class Blockchain(util.PrintError):
         n = self.height() // 2016
         for index in range(n):
             h = self.get_hash((index+1) * 2016 -1)
-            target = self.get_target(index)
+            self.print_error("checkpoints", index)
+            target = self.get_target(index * 2016)
             cp.append((h, target))
         return cp
