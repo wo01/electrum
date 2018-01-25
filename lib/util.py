@@ -432,7 +432,9 @@ def time_difference(distance_in_time, include_seconds):
 
 mainnet_block_explorers = {
     'Insight': ('https://insight.kotocoin.info',
-                        {'tx': 'tx', 'addr': 'address'}),
+                       {'tx': 'tx', 'addr': 'address'}),
+    'system default': ('blockchain:',
+                       {'tx': 'tx', 'addr': 'address'})
 }
 
 testnet_block_explorers = {
@@ -468,12 +470,12 @@ def parse_URI(uri, on_pr=None):
 
     if ':' not in uri:
         if not bitcoin.is_address(uri):
-            raise BaseException("Not a bitcoin address")
+            raise BaseException("Not a koto address")
         return {'address': uri}
 
     u = urllib.parse.urlparse(uri)
-    if u.scheme != 'bitcoin':
-        raise BaseException("Not a bitcoin URI")
+    if u.scheme != 'koto':
+        raise BaseException("Not a koto URI")
     address = u.path
 
     # python for android fails to parse query
@@ -490,7 +492,7 @@ def parse_URI(uri, on_pr=None):
     out = {k: v[0] for k, v in pq.items()}
     if address:
         if not bitcoin.is_address(address):
-            raise BaseException("Invalid bitcoin address:" + address)
+            raise BaseException("Invalid koto address:" + address)
         out['address'] = address
     if 'amount' in out:
         am = out['amount']
@@ -540,7 +542,7 @@ def create_URI(addr, amount, message):
         query.append('amount=%s'%format_satoshis_plain(amount))
     if message:
         query.append('message=%s'%urllib.parse.quote(message))
-    p = urllib.parse.ParseResult(scheme='bitcoin', netloc='', path=addr, params='', query='&'.join(query), fragment='')
+    p = urllib.parse.ParseResult(scheme='koto', netloc='', path=addr, params='', query='&'.join(query), fragment='')
     return urllib.parse.urlunparse(p)
 
 
