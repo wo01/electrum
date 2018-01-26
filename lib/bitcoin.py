@@ -619,7 +619,7 @@ from ecdsa.util import string_to_number, number_to_string
 
 def msg_magic(message):
     length = bfh(var_int(len(message)))
-    return b"\x18Zcash Signed Message:\n" + length + message
+    return b"\x18Koto Signed Message:\n" + length + message
 
 
 def verify_message(address, sig, message):
