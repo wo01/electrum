@@ -40,6 +40,10 @@ from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 
 NO_SIGNATURE = 'ff'
 
+KOTO_NUM_JS_INPUTS = 2
+KOTO_NUM_JS_OUTPUTS = 2
+# leading + v + rho + r + memo + auth
+KOTO_NOTECIPHERTEXT_SIZE = 1 + 8 + 32 + 32 + 512 + 16
 
 class SerializationError(Exception):
     """ Thrown when there's a problem deserializing or serializing """
@@ -81,6 +85,9 @@ class BCDataStream(object):
         self.write_compact_size(len(string))
         self.write(string)
 
+    def get_remains(self):
+        return self.input[self.read_cursor::]
+
     def read_bytes(self, length):
         try:
             result = self.input[self.read_cursor:self.read_cursor+length]
@@ -92,6 +99,8 @@ class BCDataStream(object):
         return ''
 
     def read_boolean(self): return self.read_bytes(1)[0] != chr(0)
+    def read_int8(self): return self._read_num('<b')
+    def read_uint8(self): return self._read_num('<B')
     def read_int16(self): return self._read_num('<h')
     def read_uint16(self): return self._read_num('<H')
     def read_int32(self): return self._read_num('<i')
@@ -100,6 +109,8 @@ class BCDataStream(object):
     def read_uint64(self): return self._read_num('<Q')
 
     def write_boolean(self, val): return self.write(chr(1) if val else chr(0))
+    def write_int8(self, val): return self._write_num('<b', val)
+    def write_uint8(self, val): return self._write_num('<B', val)
     def write_int16(self, val): return self._write_num('<h', val)
     def write_uint16(self, val): return self._write_num('<H', val)
     def write_int32(self, val): return self._write_num('<i', val)
@@ -455,6 +466,45 @@ def parse_output(vds, i):
     d['prevout_n'] = i
     return d
 
+def parse_CompressedG1(vds):
+    pt = {}
+    y_lsb = vds.read_uint8()
+    pt['y_lsb'] = y_lsb & 1
+    pt['x'] = vds.read_bytes(32)
+    return pt
+
+def parse_CompressedG2(vds):
+    pt = {}
+    y_gt = vds.read_uint8()
+    pt['y_gt'] = y_gt & 1
+    pt['x'] = vds.read_bytes(64)
+    return pt
+
+def parse_Proof(vds):
+    proof = {}
+    proof['g_A'] = parse_CompressedG1(vds)
+    proof['g_A_prime'] = parse_CompressedG1(vds)
+    proof['g_B'] = parse_CompressedG2(vds)
+    proof['g_B_prime'] = parse_CompressedG1(vds)
+    proof['g_C'] = parse_CompressedG1(vds)
+    proof['g_C_prime'] = parse_CompressedG1(vds)
+    proof['g_K'] = parse_CompressedG1(vds)
+    proof['g_H'] = parse_CompressedG1(vds)
+    return proof
+
+def parse_JSDescription(vds):
+    d = {}
+    d['vpub_old'] = vds.read_uint64()
+    d['vpub_new'] = vds.read_uint64()
+    d['anchor'] = vds.read_bytes(32);
+    d['nullifiers'] = [vds.read_bytes(32) for i in range(KOTO_NUM_JS_INPUTS)]
+    d['commitments'] = [vds.read_bytes(32) for i in range(KOTO_NUM_JS_OUTPUTS)]
+    d['ephemeralKey'] = vds.read_bytes(32)
+    d['randomSeed'] = vds.read_bytes(32);
+    d['macs'] = [vds.read_bytes(32) for i in range(KOTO_NUM_JS_INPUTS)]
+    d['proof'] = parse_Proof(vds)
+    d['ciphertexts'] = [vds.read_bytes(KOTO_NOTECIPHERTEXT_SIZE) for i in range(KOTO_NUM_JS_OUTPUTS)]
+    return d
 
 def deserialize(raw):
     vds = BCDataStream()
@@ -485,6 +535,13 @@ def deserialize(raw):
                     txin['type'] = 'p2wsh'
                     txin['address'] = bitcoin.script_to_p2wsh(txin['witnessScript'])
     d['lockTime'] = vds.read_uint32()
+    if d['version'] >= 2:
+        d['joinSplitsRaw'] = vds.get_remains()
+        n_JSDescs = vds.read_compact_size()
+        d['joinSplits'] = [parse_JSDescription(vds) for i in range(n_JSDescs)]
+        if n_JSDescs > 0:
+            d['joinSplitPubKey'] = vds.read_bytes(32)
+            d['joinSplitSig'] = vds.read_bytes(64)
     return d
 
 
@@ -522,6 +579,8 @@ class Transaction:
             raise BaseException("cannot initialize transaction", raw)
         self._inputs = None
         self._outputs = None
+        self._joinsplits = None
+        self._joinsplitsraw = None
         self.locktime = 0
         self.version = 1
 
@@ -592,6 +651,9 @@ class Transaction:
         self._outputs = [(x['type'], x['address'], x['value']) for x in d['outputs']]
         self.locktime = d['lockTime']
         self.version = d['version']
+        if self.version >= 2:
+            self._joinsplits = d['joinSplits']
+            self._joinsplitsraw = d['joinSplitsRaw']
         return d
 
     @classmethod
@@ -811,6 +873,7 @@ class Transaction:
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
+        joinSplitsRaw = self._joinsplitsraw
         txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size)) for txin in inputs)
         txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
         if witness and self.is_segwit():
@@ -819,7 +882,10 @@ class Transaction:
             witness = ''.join(self.serialize_witness(x, estimate_size) for x in inputs)
             return nVersion + marker + flag + txins + txouts + witness + nLocktime
         else:
-            return nVersion + txins + txouts + nLocktime
+            if self.version >= 2:
+                return nVersion + txins + txouts + nLocktime + joinSplitsRaw.hex()
+            else:
+                return nVersion + txins + txouts + nLocktime
 
     def hash(self):
         print("warning: deprecated tx.hash()")
