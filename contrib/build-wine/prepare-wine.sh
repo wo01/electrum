@@ -3,7 +3,14 @@
 # Please update these carefully, some versions won't work under Wine
 NSIS_URL=https://prdownloads.sourceforge.net/nsis/nsis-3.02.1-setup.exe?download
 NSIS_SHA256=736c9062a02e297e335f82252e648a883171c98e0d5120439f538c81d429552e
-PYTHON_VERSION=3.5.4
+PYTHON_VERSION=3.6.4
+# Please update these links carefully, some versions won't work under Wine
+PYTHON_URL=https://www.python.org/ftp/python/$PYTHON_VERSION/python-$PYTHON_VERSION.exe
+PYTHON_SHA256=f1c783363504c353d4b2478d3af21f72cee0bdd6d4f363a9e0e4fffda3dc9fdf
+
+VC2015_URL=https://download.microsoft.com/download/9/3/F/93FCF1E7-E6A4-478B-96E7-D4B285925B00/vc_redist.x86.exe
+WINETRICKS_MASTER_URL=https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
+LYRA2RE_HASH_PYTHON_URL=https://github.com/wo01/yescrypt_python/archive/master.zip
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
@@ -57,15 +64,9 @@ cd tmp
 # Install Python
 # note: you might need "sudo apt-get install dirmngr" for the following
 # keys from https://www.python.org/downloads/#pubkeys
-KEYRING_PYTHON_DEV=keyring-electrum-build-python-dev.gpg
-gpg --no-default-keyring --keyring $KEYRING_PYTHON_DEV --recv-keys 531F072D39700991925FED0C0EDDC5F26A45C816 26DEA9D4613391EF3E25C9FF0A5B101836580288 CBC547978A3964D14B9AB36A6AF053F07D9DC8D2 C01E1CAD5EA2C4F0B8E3571504C367C218ADD4FF 12EF3DC38047DA382D18A5B999CDEA9DA4135B38 8417157EDBE73D9EAC1E539B126EB563A74B06BF DBBF2EEBF925FAADCF1F3FFFD9866941EA5BBD71 2BA0DB82515BBB9EFFAC71C5C9BE28DEE6DF025C 0D96DF4D4110E5C43FBFB17F2D347EA6AA65421D C9B104B3DD3AA72D7CCB1066FB9921286F5E1540 97FC712E4C024BBEA48A61ED3A5CA953F73C700D 7ED10B6531D7C8E1BC296021FC624643487034E5
-for msifile in core dev exe lib pip tools; do
-    echo "Installing $msifile..."
-    wget "https://www.python.org/ftp/python/$PYTHON_VERSION/win32/${msifile}.msi"
-    wget "https://www.python.org/ftp/python/$PYTHON_VERSION/win32/${msifile}.msi.asc"
-    verify_signature "${msifile}.msi.asc" $KEYRING_PYTHON_DEV
-    wine msiexec /i "${msifile}.msi" /qb TARGETDIR=C:/python$PYTHON_VERSION
-done
+wget -O python$PYTHON_VERSION.exe "$PYTHON_URL"
+verify_hash python$PYTHON_VERSION.exe $PYTHON_SHA256
+wine python$PYTHON_VERSION.exe /quiet TargetDir=C:\python$PYTHON_VERSION
 
 # upgrade pip
 $PYTHON -m pip install pip --upgrade
@@ -77,7 +78,7 @@ $PYTHON -m pip install pypiwin32
 $PYTHON -m pip install PyQt5
 
 ## Install pyinstaller
-#$PYTHON -m pip install pyinstaller==3.3
+$PYTHON -m pip install pyinstaller==3.3
 
 
 # Install ZBar
@@ -96,6 +97,9 @@ $PYTHON -m pip install websocket-client
 # Upgrade setuptools (so Electrum can be installed later)
 $PYTHON -m pip install setuptools --upgrade
 
+# install cython
+$PYTHON -m pip install cython
+
 # Install NSIS installer
 wget -q -O nsis.exe "$NSIS_URL"
 verify_hash nsis.exe $NSIS_SHA256
@@ -107,7 +111,13 @@ wine nsis.exe /S
 #cp upx*/upx.exe .
 
 # add dlls needed for pyinstaller:
-cp $WINEPREFIX/drive_c/python$PYTHON_VERSION/Lib/site-packages/PyQt5/Qt/bin/* $WINEPREFIX/drive_c/python$PYTHON_VERSION/
+cp $WINEPREFIX/drive_c/python$PYTHON_VERSION/Lib/site-packages/PyQt5/Qt/bin/* $WINEPREFIX/drive_c/python$PYTHON_VERSION/SION/Lib/distutils
+patch < msvcr140.patch
+popd
+wine pexports $WINEPREFIX/drive_c/python$PYTHON_VERSION/vcruntime140.dll >vcruntime140.def
+wine dlltool -dllname $WINEPREFIX/drive_c/python$PYTHON_VERSION/vcruntime140.dll --def vcruntime140.def --output-lib libvcruntime140.a
+cp libvcruntime140.a $WINEPREFIX/drive_c/MinGW/lib/
+# install lyra2re2_hash
+$PYTHON -m pip install $LYRA2RE_HASH_PYTHON_URL~
 
-
-echo "Wine is configured. Please run prepare-pyinstaller.sh"
+#echo "Wine is configured. Please run prepare-pyinstaller.sh"

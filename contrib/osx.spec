@@ -10,7 +10,7 @@ for i, x in enumerate(sys.argv):
 else:
     raise BaseException('no version')
 
-home = '/Users/voegtlin/electrum/'
+home = '/Users/wo01/electrum-koto/'
 block_cipher=None
 
 # see https://github.com/pyinstaller/pyinstaller/issues/2005
@@ -41,6 +41,7 @@ a = Analysis([home+'electrum',
               home+'lib/wallet.py',
               home+'lib/simple_config.py',
               home+'lib/bitcoin.py',
+              home+'lib/blockchain.py',
               home+'lib/dnssec.py',
               home+'lib/commands.py',
               home+'plugins/cosigner_pool/qt.py',

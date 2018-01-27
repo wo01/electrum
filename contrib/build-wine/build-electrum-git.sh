@@ -1,7 +1,10 @@
 #!/bin/bash
 
+ELECTRUM_GIT_URL=git://github.com/wo01/electrum-koto.git
+ELECTRUM_LOCALE_URL=git://github.com/spesmilo/electrum-locale.git
+BRANCH=master
 NAME_ROOT=electrum
-PYTHON_VERSION=3.5.4
+PYTHON_VERSION=3.6.4
 
 # These settings probably don't need any change
 export WINEPREFIX=/opt/wine64
@@ -18,17 +21,31 @@ set -e
 
 cd tmp
 
-for repo in electrum electrum-locale electrum-icons; do
-    if [ -d $repo ]; then
-	cd $repo
-	git pull
-	git checkout master
-	cd ..
-    else
-	URL=https://github.com/spesmilo/$repo.git
-	git clone -b master $URL $repo
-    fi
-done
+if [ -d "electrum-koto" ]; then
+    # GIT repository found, update it
+    echo "Pull"
+    cd electrum-koto
+    git checkout $BRANCH
+    git pull
+    cd ..
+else
+    # GIT repository not found, clone it
+    echo "Clone"
+    git clone -b $BRANCH $ELECTRUM_GIT_URL electrum-koto
+fi
+
+if [ -d "electrum-locale" ]; then
+    # GIT repository found, update it
+    echo "Pull"
+    cd electrum-locale
+    #git checkout $BRANCH
+    git pull
+    cd ..
+else
+    # GIT repository not found, clone it
+    echo "Clone"
+    git clone -b $BRANCH $ELECTRUM_LOCALE_URL electrum-locale
+fi
 
 pushd electrum-locale
 for i in ./locale/*; do
@@ -38,7 +55,7 @@ for i in ./locale/*; do
 done
 popd
 
-pushd electrum
+pushd electrum-koto
 if [ ! -z "$1" ]; then
     git checkout $1
 fi
@@ -48,16 +65,17 @@ echo "Last commit: $VERSION"
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
-rm -rf $WINEPREFIX/drive_c/electrum
-cp -r electrum $WINEPREFIX/drive_c/electrum
-cp electrum/LICENCE .
-cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum/lib/
-cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum/gui/qt/
+rm -rf $WINEPREFIX/drive_c/electrum-koto
+cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
+cp electrum-koto/LICENCE .
+cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
+# Build Qt resources
+wine $WINEPREFIX/drive_c/python$PYTHON_VERSION/Scripts/pyrcc5.exe C:/electrum-koto/icons.qrc -o C:/electrum-koto/gui/qt/icons_rc.py
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../requirements.txt
 
-pushd $WINEPREFIX/drive_c/electrum
+pushd $WINEPREFIX/drive_c/electrum-koto
 $PYTHON setup.py install
 popd
 
@@ -68,6 +86,7 @@ rm -rf dist/
 # build standalone and portable versions
 wine "C:/python$PYTHON_VERSION/scripts/pyinstaller.exe" --noconfirm --ascii --name $NAME_ROOT-$VERSION -w deterministic.spec
 
+
 # set timestamps in dist, in order to make the installer reproducible
 pushd dist
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
@@ -75,7 +94,11 @@ popd
 
 # build NSIS installer
 # $VERSION could be passed to the electrum.nsi script, but this would require some rewriting in the script iself.
-wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
+if [ -d "$WINEPREFIX/drive_c/Program Files (x86)" ]; then
+    wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
+else
+    wine "$WINEPREFIX/drive_c/Program Files/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
+fi
 
 cd dist
 mv electrum-setup.exe $NAME_ROOT-$VERSION-setup.exe

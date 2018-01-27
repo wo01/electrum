@@ -25,7 +25,7 @@ files = {
 
 for k, n in files.items():
     path = "dist/%s"%n
-    link = "https://download.electrum.org/%s/%s"%(version,n)
+    link = "https://electrum.kotocoin.info/%s/%s"%(version,n)
     if not os.path.exists(path):
         os.system("wget -q %s -O %s" % (link, path))
     if not os.path.getsize(path):

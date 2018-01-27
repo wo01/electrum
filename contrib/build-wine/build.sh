@@ -13,7 +13,7 @@ rm $here/build/* -rf
 rm $here/dist/* -rf
 
 $here/prepare-wine.sh && \
-$here/prepare-pyinstaller.sh && \
+#$here/prepare-pyinstaller.sh && \
 $here/prepare-hw.sh || exit 1
 
 echo "Resetting modification time in C:\Python..."
