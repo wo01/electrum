@@ -237,7 +237,7 @@ def android_data_dir():
     return PythonActivity.mActivity.getFilesDir().getPath() + '/data'
 
 def android_headers_dir():
-    d = android_ext_dir() + '/org.electrum.electrum'
+    d = android_ext_dir() + '/info.kotocoin.electrum.electrum'
     if not os.path.exists(d):
         os.mkdir(d)
     return d
@@ -445,7 +445,7 @@ def block_explorer_info():
     return testnet_block_explorers if bitcoin.NetworkConstants.TESTNET else mainnet_block_explorers
 
 def block_explorer(config):
-    return config.get('block_explorer', 'Blocktrail.com')
+    return config.get('block_explorer', 'Insight')
 
 def block_explorer_tuple(config):
     return block_explorer_info().get(block_explorer(config))
