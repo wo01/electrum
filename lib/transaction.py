@@ -463,7 +463,8 @@ def deserialize(raw):
     start = vds.read_cursor
     d['version'] = vds.read_int32()
     n_vin = vds.read_compact_size()
-    is_segwit = (n_vin == 0)
+#    is_segwit = (n_vin == 0) # if private address, n_vin == 0
+    is_segwit = 0
     if is_segwit:
         marker = vds.read_bytes(1)
         assert marker == b'\x01'
