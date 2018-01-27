@@ -13,5 +13,3 @@ requests==2.18.4
 six==1.11.0
 urllib3==1.22
 cython==0.27.3
-lyra2re2_hash==1.0.0
-

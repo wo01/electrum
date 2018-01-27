@@ -1,13 +1,13 @@
 #!/bin/bash
 
 contrib=$(dirname "$0")
+test -n "$contrib" -a -d "$contrib" || exit 
 
 whereis pip3
 if [ $? -ne 0 ] ; then echo "Install pip3" ; exit ; fi
 
-rm "$contrib"/../packages/ -r
+rm -r "$contrib"/../packages/
 
 #Install pure python modules in electrum directory
-pip3 install https://github.com/wo01/yescrypt_python/archive/master.zip -t $contrib/../packages
-pip3 install -r $contrib/requirements.txt -t $contrib/../packages
-
+pip3 install https://github.com/wo01/yescrypt_python/archive/master.zip -t "$contrib"/../packages
+pip3 install -r $contrib/requirements.txt -t "$contrib"/../packages
