@@ -90,7 +90,7 @@ This directory contains the python dependencies used by Electrum.
 Mac OS X / macOS
 --------
 
-To create dmg file, 
+To create dmg file::
 
     sudo pip3 install pyinstaller trezor btchip-python keepkey
     ./contrib/make_osx
