@@ -77,7 +77,7 @@ exe = EXE(pyz,
 
 app = BUNDLE(exe,
              version = VERSION,
-             name='Electrum.app',
+             name='Electrum-Koto.app',
              icon=home+'electrum.icns',
              bundle_identifier=None,
              info_plist = {
