@@ -10,7 +10,8 @@ for i, x in enumerate(sys.argv):
 else:
     raise BaseException('no version')
 
-home = '/Users/wo01/electrum-koto/'
+import os
+home = os.environ['HOME'] + '/electrum-koto/'
 block_cipher=None
 
 # see https://github.com/pyinstaller/pyinstaller/issues/2005
