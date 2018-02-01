@@ -1,0 +1,20 @@
+diff -crN yescrypt_python.orig/setup.py yescrypt_python/setup.py
+*** yescrypt_python.orig/setup.py	2018-02-01 12:34:38.525292000 +0900
+--- yescrypt_python/setup.py	2018-02-01 12:41:59.839844000 +0900
+***************
+*** 2,8 ****
+  
+  yescrypt_module = Extension('yescrypt',
+                              sources = ['yescrypt.c'],
+!                             extra_compile_args=['-march=native', '-funroll-loops', '-fomit-frame-pointer'],
+                              include_dirs=['.'])
+  
+  setup (name = 'yescrypt',
+--- 2,8 ----
+  
+  yescrypt_module = Extension('yescrypt',
+                              sources = ['yescrypt.c'],
+!                             extra_compile_args=['-O2', '-DHAVE_DECL_BE64ENC'],
+                              include_dirs=['.'])
+  
+  setup (name = 'yescrypt',

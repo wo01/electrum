@@ -31,7 +31,7 @@ version.filename = %(source.dir)s/contrib/versions.py
 #version = 1.9.8
 
 # (list) Application requirements
-requirements = python3crystax, android, openssl, plyer, kivy==master
+requirements = python3crystax, android, openssl, plyer, kivy==master, yescrypt
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/gui/kivy/theming/splash.png
@@ -125,6 +125,9 @@ android.whitelist = lib-dynload/_csv.so
 
 # local version that merges branch 866
 p4a.source_dir = /opt/python-for-android
+
+# (str) The directory in which python-for-android should look for your own build recipes (if any)
+p4a.local_recipes = contrib/local_recipes
 
 #
 # iOS specific

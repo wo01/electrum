@@ -2,6 +2,14 @@
 
 The Kivy GUI is used with Electrum on Android devices. To generate an APK file, follow these instructions.
 
+## 0. Install Crystax NDK
+Download crystaX NDK file from https://www.crystax.net/en/download
+Extract the file. 
+```sh
+cd /opt
+tar xJf crystax-ndk-10.3.2-linux-x86_64.tar.xz 
+``` 
+
 ## 1. Install python-for-android (p4a)
 p4a is used to package Electrum, Python, SDL and a bootstrap Java app into an APK file. 
 We patched p4a to add some functionality we need for Electrum. Until those changes are
@@ -19,6 +27,8 @@ git remote add agilewalker https://github.com/agilewalker/python-for-android
 git checkout a036f4442b6a23
 git fetch agilewalker
 git merge agilewalker/master
+cd python-for-android
+patch -p1 < $HOME/electrum-koto/contrib/p4a.patch
 ```
 
 ## 2. Install buildozer
