@@ -9,12 +9,15 @@ import platform
 import imp
 import argparse
 
+with open('requirements-hw.txt') as f:
+    requirements_hw = f.read().splitlines()
+
 version = imp.load_source('version', 'lib/version.py')
 
 if sys.version_info[:3] < (3, 4, 0):
     sys.exit("Error: Electrum requires Python version >= 3.4.0...")
 
-data_files = []
+data_files = ['requirements-hw.txt']
 
 if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
     parser = argparse.ArgumentParser()
@@ -46,6 +49,9 @@ setup(
         'jsonrpclib-pelix',
         'PySocks>=1.6.6',
     ],
+    extras_require={
+        'hardware': requirements_hw,
+    },
     packages=[
         'electrum',
         'electrum_gui',
@@ -83,10 +89,10 @@ setup(
     },
     scripts=['electrum'],
     data_files=data_files,
-    description="Lightweight Bitcoin Wallet",
-    author="Thomas Voegtlin",
-    author_email="thomasv@electrum.org",
+    description="Lightweight Koto Wallet",
+    author="WO",
+    author_email="wo@kotocoin.info",
     license="MIT Licence",
-    url="https://electrum.org",
-    long_description="""Lightweight Bitcoin Wallet"""
+    url="https://electrum.kotocoin.info",
+    long_description="""Lightweight Koto Wallet"""
 )
