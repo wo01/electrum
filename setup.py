@@ -89,10 +89,10 @@ setup(
     },
     scripts=['electrum'],
     data_files=data_files,
-    description="Lightweight Bitcoin Wallet",
-    author="Thomas Voegtlin",
-    author_email="thomasv@electrum.org",
+    description="Lightweight Koto Wallet",
+    author="WO",
+    author_email="wo@kotocoin.info",
     license="MIT Licence",
-    url="https://electrum.org",
-    long_description="""Lightweight Bitcoin Wallet"""
+    url="https://electrum.kotocoin.info",
+    long_description="""Lightweight Koto Wallet"""
 )
