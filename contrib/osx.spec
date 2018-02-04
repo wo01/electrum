@@ -35,6 +35,10 @@ datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')
 
+prefix = sys.prefix
+ver = sys.version_info
+binaries = [ ( prefix+'/lib/python'+str(ver[0])+'.'+str(ver[1])+'/site-packages/PyQt5/Qt/plugins/styles/libqmacstyle.dylib', 'PyQt5/Qt/plugins/styles' ) ]
+
 # We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
 a = Analysis([electrum+'electrum',
               electrum+'gui/qt/main_window.py',
@@ -54,6 +58,7 @@ a = Analysis([electrum+'electrum',
               electrum+'plugins/ledger/qt.py',
               ],
              datas=datas,
+             binaries=binaries,
              hiddenimports=hiddenimports,
              hookspath=[])
 
