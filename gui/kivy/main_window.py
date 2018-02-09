@@ -581,7 +581,7 @@ class ElectrumWindow(App):
         self.receive_screen = None
         self.requests_screen = None
         self.address_screen = None
-        self.icon = "icons/electrum.png"
+        self.icon = "icons/kotocolor.png"
         self.tabs = self.root.ids['tabs']
 
     def update_interfaces(self, dt):
