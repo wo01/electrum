@@ -87,7 +87,7 @@ $PYTHON -m pip install pywin32-ctypes
 $PYTHON -m pip install PyQt5
 
 ## Install pyinstaller
-$PYTHON -m pip install pyinstaller==3.3
+#$PYTHON -m pip install pyinstaller==3.3
 
 
 # Install ZBar
