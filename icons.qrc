@@ -18,6 +18,17 @@
     <file>icons/keepkey.png</file>
     <file>icons/keepkey_unpaired.png</file>
     <file>icons/key.png</file>
+    <file>icons/kotocolor/1024x1024.png</file>
+    <file>icons/kotocolor/128x128.png</file>
+    <file>icons/kotocolor/16x16.png</file>
+    <file>icons/kotocolor/24x24.png</file>
+    <file>icons/kotocolor/256x256.png</file>
+    <file>icons/kotocolor/32x32.png</file>
+    <file>icons/kotocolor/48x48.png</file>
+    <file>icons/kotocolor/512x512.png</file>
+    <file>icons/kotocolor/64x64.png</file>
+    <file>icons/kotocolor/96x96.png</file>
+    <file>icons/kotocolor.png</file>
     <file>icons/ledger.png</file>
     <file>icons/ledger_unpaired.png</file>
     <file>icons/lock.png</file>
