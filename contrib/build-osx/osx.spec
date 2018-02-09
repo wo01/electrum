@@ -78,13 +78,13 @@ exe = EXE(pyz,
           debug=False,
           strip=False,
           upx=True,
-          icon=electrum+'electrum-koto/kotocolor.icns',
+          icon=electrum+'kotocolor.icns',
           console=False)
 
 app = BUNDLE(exe,
              version = VERSION,
              name='Electrum-Koto.app',
-             icon=electrum+'electrum-koto/kotocolor.icns',
+             icon=electrum+'kotocolor.icns',
              bundle_identifier=None,
              info_plist = {
                  'NSHighResolutionCapable':'True'
