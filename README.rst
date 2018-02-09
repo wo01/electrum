@@ -90,16 +90,12 @@ This directory contains the python dependencies used by Electrum.
 Mac OS X / macOS
 --------
 
-To create dmg file::
-
-    sudo pip3 install pyqt5 # If you use pyqt (Homebrew) or py36-pyqt5 (MacPorts), you have to uninstall it
-    sudo pip3 install pyinstaller trezor btchip-python keepkey
-    ./contrib/make_osx
+See `contrib/build-osx/`.
 
 Windows
 -------
 
-See `contrib/build-wine/README` file.
+See `contrib/build-wine/`.
 
 
 Android

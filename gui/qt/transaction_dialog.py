@@ -179,10 +179,13 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.main_window.sign_tx(self.tx, sign_done)
 
     def save(self):
-        self.wallet.add_transaction(self.tx.txid(), self.tx)
+        if not self.wallet.add_transaction(self.tx.txid(), self.tx):
+            self.show_error(_("Transaction could not be saved. It conflicts with current history."))
+            return
         self.wallet.save_transactions(write=True)
 
-        self.main_window.history_list.update()
+        # need to update at least: history_list, utxo_list, address_list
+        self.main_window.need_update.set()
 
         self.save_button.setDisabled(True)
         self.show_message(_("Transaction saved successfully"))
@@ -218,11 +221,11 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         if timestamp:
             time_str = datetime.datetime.fromtimestamp(timestamp).isoformat(' ')[:-3]
-            self.date_label.setText(_("Date: %s")%time_str)
+            self.date_label.setText(_("Date: {}").format(time_str))
             self.date_label.show()
         elif exp_n:
-            text = '%d blocks'%(exp_n) if exp_n > 0 else _('unknown (low fee)')
-            self.date_label.setText(_('Expected confirmation time') + ': ' + text)
+            text = '%.2f MB'%(exp_n/1000000)
+            self.date_label.setText(_('Position in mempool') + ': ' + text + ' ' + _('from tip'))
             self.date_label.show()
         else:
             self.date_label.hide()

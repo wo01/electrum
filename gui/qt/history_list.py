@@ -36,7 +36,6 @@ from electrum.util import timestamp_to_datetime, profiler
 TX_ICONS = [
     "warning.png",
     "warning.png",
-    "warning.png",
     "unconfirmed.png",
     "unconfirmed.png",
     "offline_tx.png",
@@ -71,7 +70,6 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
 
     @profiler
     def on_update(self):
-        # TODO save and restore scroll position (maybe based on y coord or selected item?)
         self.wallet = self.parent.wallet
         h = self.wallet.get_history(self.get_domain())
         item = self.currentItem()
@@ -166,9 +164,9 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
         if height == TX_HEIGHT_LOCAL:
             menu.addAction(_("Remove"), lambda: self.remove_local_tx(tx_hash))
 
-        menu.addAction(_("Copy %s")%column_title, lambda: self.parent.app.clipboard().setText(column_data))
+        menu.addAction(_("Copy {}").format(column_title), lambda: self.parent.app.clipboard().setText(column_data))
         if column in self.editable_columns:
-            menu.addAction(_("Edit %s")%column_title, lambda: self.editItem(item, column))
+            menu.addAction(_("Edit {}").format(column_title), lambda: self.editItem(item, column))
 
         menu.addAction(_("Details"), lambda: self.parent.show_transaction(tx))
 
@@ -214,4 +212,5 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
                 self.parent.show_error(e)
             else:
                 self.wallet.save_transactions(write=True)
-                self.on_update()
+                # need to update at least: history_list, utxo_list, address_list
+                self.parent.need_update.set()

@@ -172,6 +172,10 @@ class Ledger_Client():
                 raise Exception("Dongle is temporarily locked - please unplug it and replug it again")
             if ((e.sw & 0xFFF0) == 0x63c0):
                 raise Exception("Invalid PIN - please unplug the dongle and plug it again before retrying")
+            if e.sw == 0x6f00 and e.message == 'Invalid channel':
+                # based on docs 0x6f00 might be a more general error, hence we also compare message to be sure
+                raise Exception("Invalid channel.\n"
+                                "Please make sure that 'Browser support' is disabled on your device.")
             raise e
 
     def checkDevice(self):
@@ -236,7 +240,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
         return address_path[2:]
 
     def decrypt_message(self, pubkey, message, password):
-        raise RuntimeError(_('Encryption and decryption are currently not supported for %s') % self.device)
+        raise RuntimeError(_('Encryption and decryption are currently not supported for {}').format(self.device))
 
     def sign_message(self, sequence, message, password):
         self.signing = True

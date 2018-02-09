@@ -1,7 +1,0 @@
-#!/bin/bash
-rm -rf dist
-export PYTHONHASHSEED=22
-VERSION=${VERSION:-`git describe --tags`}
-OS_VER=`sw_vers -productVersion | perl -nle 'print $1 if(/^(\d+\.\d+)/);'`
-pyinstaller --noconfirm --ascii --name $VERSION contrib/osx.spec
-hdiutil create -fs HFS+ -volname "Electrum-Koto" -srcfolder dist/Electrum-Koto.app dist/electrum-koto-$VERSION-$OS_VER.dmg

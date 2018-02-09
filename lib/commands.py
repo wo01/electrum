@@ -627,7 +627,8 @@ class Commands:
     def addtransaction(self, tx):
         """ Add a transaction to the wallet history """
         tx = Transaction(tx)
-        self.wallet.add_transaction(tx.txid(), tx)
+        if not self.wallet.add_transaction(tx.txid(), tx):
+            return False
         self.wallet.save_transactions()
         return tx.txid()
 
@@ -808,7 +809,7 @@ def subparser_call(self, parser, namespace, values, option_string=None):
         parser = self._name_parser_map[parser_name]
     except KeyError:
         tup = parser_name, ', '.join(self._name_parser_map)
-        msg = _('unknown parser %r (choices: %s)') % tup
+        msg = _('unknown parser {!r} (choices: {})').format(*tup)
         raise ArgumentError(self, msg)
     # parse all the remaining options into the namespace
     # store any unrecognized options on the object, so that the top
