@@ -65,6 +65,11 @@ Label.register('Roboto',
                'gui/kivy/data/fonts/Roboto.ttf',
                'gui/kivy/data/fonts/Roboto-Bold.ttf',
                'gui/kivy/data/fonts/Roboto-Bold.ttf')
+Label.register('JP',
+               'gui/kivy/data/fonts/GenShinGothic-P-Normal.ttf',
+               'gui/kivy/data/fonts/GenShinGothic-P-Normal.ttf',
+               'gui/kivy/data/fonts/GenShinGothic-P-Bold.ttf',
+               'gui/kivy/data/fonts/GenShinGothic-P-Bold.ttf')
 
 
 from electrum.util import base_units
@@ -154,7 +159,7 @@ class ElectrumWindow(App):
         self._trigger_update_history()
 
     def _get_bu(self):
-        return self.electrum_config.get('base_unit', 'mKOTO')
+        return self.electrum_config.get('base_unit', 'KOTO')
 
     def _set_bu(self, value):
         assert value in base_units.keys()
