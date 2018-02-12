@@ -18,7 +18,7 @@ set -e
 
 cd tmp
 
-for repo in electrum electrum-locale electrum-icons; do
+for repo in electrum-koto electrum-locale electrum-icons; do
     if [ -d $repo ]; then
 	cd $repo
 	git pull
@@ -52,7 +52,7 @@ rm -rf $WINEPREFIX/drive_c/electrum-koto
 cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
 cp electrum-koto/LICENCE .
 cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
-cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum/gui/qt/
+cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/gui/qt/
 # Build Qt resources
 #wine $WINEPREFIX/drive_c/python$PYTHON_VERSION/Scripts/pyrcc5.exe C:/electrum-koto/icons.qrc -o C:/electrum-koto/gui/qt/icons_rc.py
 
