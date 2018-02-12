@@ -1,9 +1,6 @@
 #!/bin/bash
 
-ELECTRUM_GIT_URL=git://github.com/wo01/electrum-koto.git
-ELECTRUM_LOCALE_URL=git://github.com/spesmilo/electrum-locale.git
-BRANCH=master
-NAME_ROOT=electrum
+NAME_ROOT=electrum-koto
 PYTHON_VERSION=3.6.4
 
 # These settings probably don't need any change
@@ -21,31 +18,17 @@ set -e
 
 cd tmp
 
-if [ -d "electrum-koto" ]; then
-    # GIT repository found, update it
-    echo "Pull"
-    cd electrum-koto
-    git checkout $BRANCH
-    git pull
-    cd ..
-else
-    # GIT repository not found, clone it
-    echo "Clone"
-    git clone -b $BRANCH $ELECTRUM_GIT_URL electrum-koto
-fi
-
-if [ -d "electrum-locale" ]; then
-    # GIT repository found, update it
-    echo "Pull"
-    cd electrum-locale
-    #git checkout $BRANCH
-    git pull
-    cd ..
-else
-    # GIT repository not found, clone it
-    echo "Clone"
-    git clone -b $BRANCH $ELECTRUM_LOCALE_URL electrum-locale
-fi
+for repo in electrum electrum-locale electrum-icons; do
+    if [ -d $repo ]; then
+	cd $repo
+	git pull
+	git checkout master
+	cd ..
+    else
+	URL=https://github.com/wo01/$repo.git
+	git clone -b master $URL $repo
+    fi
+done
 
 pushd electrum-locale
 for i in ./locale/*; do
@@ -69,8 +52,9 @@ rm -rf $WINEPREFIX/drive_c/electrum-koto
 cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
 cp electrum-koto/LICENCE .
 cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
+cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum/gui/qt/
 # Build Qt resources
-wine $WINEPREFIX/drive_c/python$PYTHON_VERSION/Scripts/pyrcc5.exe C:/electrum-koto/icons.qrc -o C:/electrum-koto/gui/qt/icons_rc.py
+#wine $WINEPREFIX/drive_c/python$PYTHON_VERSION/Scripts/pyrcc5.exe C:/electrum-koto/icons.qrc -o C:/electrum-koto/gui/qt/icons_rc.py
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
@@ -86,7 +70,6 @@ rm -rf dist/
 
 # build standalone and portable versions
 wine "C:/python$PYTHON_VERSION/scripts/pyinstaller.exe" --noconfirm --ascii --name $NAME_ROOT-$VERSION -w deterministic.spec
-
 
 # set timestamps in dist, in order to make the installer reproducible
 pushd dist

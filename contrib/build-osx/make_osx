@@ -51,7 +51,7 @@ mkdir /tmp/electrum-build
 
 info "Downloading icons and locale..."
 for repo in icons locale; do
-  git clone https://github.com/spesmilo/electrum-$repo /tmp/electrum-build/electrum-$repo
+  git clone https://github.com/wo01/electrum-$repo /tmp/electrum-build/electrum-$repo
 done
 
 cp -R /tmp/electrum-build/electrum-locale/locale/ ./lib/locale/

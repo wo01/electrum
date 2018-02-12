@@ -156,4 +156,4 @@ cp libvcruntime140.a $WINEPREFIX/drive_c/MinGW/lib/
 # install yescrypt
 $PYTHON -m pip install $YESCRYPT_HASH_PYTHON_URL
 
-#echo "Wine is configured. Please run prepare-pyinstaller.sh"
+echo "Wine is configured. Please run prepare-pyinstaller.sh"
