@@ -1,9 +1,14 @@
 # -*- mode: python -*-
 
-from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 
 import sys
 import os
+
+PACKAGE='Electrum-Koto'
+PYPKG='electrum'
+MAIN_SCRIPT='electrum'
+ICONS_FILE='kotocolor.icns'
 
 for i, x in enumerate(sys.argv):
     if x == '--name':
@@ -22,25 +27,35 @@ hiddenimports += collect_submodules('btchip')
 hiddenimports += collect_submodules('keepkeylib')
 
 datas = [
-    (electrum+'lib/currencies.json', 'electrum'),
-    (electrum+'lib/servers.json', 'electrum'),
-    (electrum+'lib/checkpoints.json', 'electrum'),
-    (electrum+'lib/servers_testnet.json', 'electrum'),
-    (electrum+'lib/checkpoints_testnet.json', 'electrum'),
-    (electrum+'lib/wordlist/english.txt', 'electrum/wordlist'),
-    (electrum+'lib/locale', 'electrum/locale'),
-    (electrum+'plugins', 'electrum_plugins'),
+    (electrum+'lib/currencies.json', PYPKG),
+    (electrum+'lib/servers.json', PYPKG),
+    (electrum+'lib/checkpoints.json', PYPKG),
+    (electrum+'lib/servers_testnet.json', PYPKG),
+    (electrum+'lib/checkpoints_testnet.json', PYPKG),
+    (electrum+'lib/wordlist/english.txt', PYPKG + '/wordlist'),
+    (electrum+'lib/locale', PYPKG + '/locale'),
+    (electrum+'plugins', PYPKG + '_plugins'),
 ]
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')
 
-prefix = sys.prefix
-ver = sys.version_info
-binaries = [ ( prefix+'/lib/python'+str(ver[0])+'.'+str(ver[1])+'/site-packages/PyQt5/Qt/plugins/styles/libqmacstyle.dylib', 'PyQt5/Qt/plugins/styles' ) ]
-
+# We had an issue with PyQt 5.10 not picking up the libqmacstyles.dylib properly,
+# and thus Electrum looking terrible on Mac.
+# The below 3 statements are a workaround for that issue.
+# This should 'do nothing bad' in any case should a future version of PyQt5 not even
+# need this.
+binaries = []
+dylibs_in_pyqt5 = collect_dynamic_libs('PyQt5', 'DUMMY_NOT_USED')
+for tuple in dylibs_in_pyqt5:
+    # find libqmacstyle.dylib ...
+    if "libqmacstyle.dylib" in tuple[0]:
+        # .. and include all the .dylibs in that dir in our 'binaries' PyInstaller spec
+        binaries += [( os.path.dirname(tuple[0]) + '/*.dylib', 'PyQt5/Qt/plugins/styles' )]
+        break
+ 
 # We don't put these files in to actually include them in the script but to make the Analysis method scan them for imports
-a = Analysis([electrum+'electrum',
+a = Analysis([electrum+MAIN_SCRIPT,
               electrum+'gui/qt/main_window.py',
               electrum+'gui/text.py',
               electrum+'lib/util.py',
@@ -57,14 +72,14 @@ a = Analysis([electrum+'electrum',
               electrum+'plugins/keepkey/qt.py',
               electrum+'plugins/ledger/qt.py',
               ],
-             datas=datas,
              binaries=binaries,
+             datas=datas,
              hiddenimports=hiddenimports,
              hookspath=[])
 
 # http://stackoverflow.com/questions/19055089/pyinstaller-onefile-warning-pyconfig-h-when-importing-scipy-or-scipy-signal
 for d in a.datas:
-    if 'pyconfig' in d[0]: 
+    if 'pyconfig' in d[0]:
         a.datas.remove(d)
         break
 
@@ -74,17 +89,17 @@ exe = EXE(pyz,
           a.scripts,
           a.binaries,
           a.datas,
-          name='Electrum',
+          name=PACKAGE,
           debug=False,
           strip=False,
           upx=True,
-          icon=electrum+'kotocolor.icns',
+          icon=electrum+ICONS_FILE,
           console=False)
 
 app = BUNDLE(exe,
              version = VERSION,
-             name='Electrum-Koto.app',
-             icon=electrum+'kotocolor.icns',
+             name=PACKAGE + '.app',
+             icon=electrum+ICONS_FILE,
              bundle_identifier=None,
              info_plist = {
                  'NSHighResolutionCapable':'True'

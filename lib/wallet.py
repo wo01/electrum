@@ -208,7 +208,7 @@ class Abstract_Wallet(PrintError):
         self.up_to_date = False
 
         # locks: if you need to take multiple ones, acquire them in the order they are defined here!
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.transaction_lock = threading.RLock()
 
         self.check_history()
@@ -321,6 +321,9 @@ class Abstract_Wallet(PrintError):
 
     def synchronize(self):
         pass
+
+    def is_deterministic(self):
+        return self.keystore.is_deterministic()
 
     def set_up_to_date(self, up_to_date):
         with self.lock:
@@ -728,10 +731,7 @@ class Abstract_Wallet(PrintError):
                 if spending_tx_hash is None:
                     continue
                 # this outpoint (ser) has already been spent, by spending_tx
-                if spending_tx_hash not in self.transactions:
-                    # can't find this txn: delete and ignore it
-                    self.spent_outpoints.pop(ser)
-                    continue
+                assert spending_tx_hash in self.transactions
                 conflicting_txns |= {spending_tx_hash}
             txid = tx.txid()
             if txid in conflicting_txns:
@@ -942,10 +942,21 @@ class Abstract_Wallet(PrintError):
 
         return h2
 
+    def balance_at_timestamp(self, domain, target_timestamp):
+        h = self.get_history(domain)
+        for tx_hash, height, conf, timestamp, value, balance in h:
+            if timestamp > target_timestamp:
+                return balance - value
+        # return last balance
+        return balance
+
     def export_history(self, domain=None, from_timestamp=None, to_timestamp=None, fx=None, show_addresses=False):
         from .util import format_time, format_satoshis, timestamp_to_datetime
         h = self.get_history(domain)
         out = []
+        init_balance = None
+        capital_gains = 0
+        fiat_income = 0
         for tx_hash, height, conf, timestamp, value, balance in h:
             if from_timestamp and timestamp < from_timestamp:
                 continue
@@ -959,6 +970,9 @@ class Abstract_Wallet(PrintError):
                 'value': format_satoshis(value, True) if value is not None else '--',
                 'balance': format_satoshis(balance)
             }
+            if init_balance is None:
+                init_balance = balance - value
+            end_balance = balance
             if item['height']>0:
                 date_str = format_time(timestamp) if timestamp is not None else _("unverified")
             else:
@@ -987,11 +1001,38 @@ class Abstract_Wallet(PrintError):
                 item['output_addresses'] = output_addresses
             if fx is not None:
                 date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
-                item['fiat_value'] = fx.historical_value_str(value, date)
-                item['fiat_balance'] = fx.historical_value_str(balance, date)
+                fiat_value = self.get_fiat_value(tx_hash, fx.ccy)
+                if fiat_value is None:
+                    fiat_value = fx.historical_value(value, date)
+                item['fiat_value'] = fx.format_fiat(fiat_value)
                 if value < 0:
-                    item['capital_gain'] = self.capital_gain(tx_hash, fx.timestamp_rate)
+                    ap, lp = self.capital_gain(tx_hash, fx.timestamp_rate, fx.ccy)
+                    cg = None if lp is None or ap is None else lp - ap
+                    item['acquisition_price'] = fx.format_fiat(ap)
+                    item['capital_gain'] = fx.format_fiat(cg)
+                    if cg is not None:
+                        capital_gains += cg
+                else:
+                    if fiat_value is not None:
+                        fiat_income += fiat_value
             out.append(item)
+
+        if from_timestamp and to_timestamp:
+            summary = {
+                'start_date': format_time(from_timestamp),
+                'end_date': format_time(to_timestamp),
+                'start_balance': format_satoshis(init_balance),
+                'end_balance': format_satoshis(end_balance),
+                'capital_gains': fx.format_fiat(capital_gains),
+                'fiat_income': fx.format_fiat(fiat_income)
+            }
+            if fx:
+                start_date = timestamp_to_datetime(from_timestamp)
+                end_date = timestamp_to_datetime(to_timestamp)
+                summary['start_fiat_balance'] = fx.format_fiat(fx.historical_value(init_balance, start_date))
+                summary['end_fiat_balance'] = fx.format_fiat(fx.historical_value(end_balance, end_date))
+            out.append(summary)
+
         return out
 
     def get_label(self, tx_hash):
@@ -1643,11 +1684,12 @@ class Abstract_Wallet(PrintError):
             liquidation_price = None if p is None else out_value/Decimal(COIN) * p
         else:
             liquidation_price = - fiat_value
-
         try:
-            return liquidation_price - out_value/Decimal(COIN) * self.average_price(tx, price_func, ccy)
+            acquisition_price = out_value/Decimal(COIN) * self.average_price(tx, price_func, ccy)
         except:
-            return None
+            acquisition_price = None
+        return acquisition_price, liquidation_price
+
 
     def average_price(self, tx, price_func, ccy):
         """ average price of the inputs of a transaction """
@@ -1885,9 +1927,6 @@ class Deterministic_Wallet(Abstract_Wallet):
     def has_seed(self):
         return self.keystore.has_seed()
 
-    def is_deterministic(self):
-        return self.keystore.is_deterministic()
-
     def get_receiving_addresses(self):
         return self.receiving_addresses
 
@@ -1949,15 +1988,16 @@ class Deterministic_Wallet(Abstract_Wallet):
 
     def create_new_address(self, for_change=False):
         assert type(for_change) is bool
-        addr_list = self.change_addresses if for_change else self.receiving_addresses
-        n = len(addr_list)
-        x = self.derive_pubkeys(for_change, n)
-        address = self.pubkeys_to_address(x)
-        addr_list.append(address)
-        self._addr_to_addr_index[address] = (for_change, n)
-        self.save_addresses()
-        self.add_address(address)
-        return address
+        with self.lock:
+            addr_list = self.change_addresses if for_change else self.receiving_addresses
+            n = len(addr_list)
+            x = self.derive_pubkeys(for_change, n)
+            address = self.pubkeys_to_address(x)
+            addr_list.append(address)
+            self._addr_to_addr_index[address] = (for_change, n)
+            self.save_addresses()
+            self.add_address(address)
+            return address
 
     def synchronize_sequence(self, for_change):
         limit = self.gap_limit_for_change if for_change else self.gap_limit
@@ -1973,16 +2013,8 @@ class Deterministic_Wallet(Abstract_Wallet):
 
     def synchronize(self):
         with self.lock:
-            if self.is_deterministic():
-                self.synchronize_sequence(False)
-                self.synchronize_sequence(True)
-            else:
-                if len(self.receiving_addresses) != len(self.keystore.keypairs):
-                    pubkeys = self.keystore.keypairs.keys()
-                    self.receiving_addresses = [self.pubkeys_to_address(i) for i in pubkeys]
-                    self.save_addresses()
-                    for addr in self.receiving_addresses:
-                        self.add_address(addr)
+            self.synchronize_sequence(False)
+            self.synchronize_sequence(True)
 
     def is_beyond_limit(self, address):
         is_change, i = self.get_address_index(address)
