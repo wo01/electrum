@@ -1,7 +1,7 @@
 #!/bin/bash
 
 NAME_ROOT=electrum-koto
-PYTHON_VERSION=3.6.4
+PYTHON_VERSION=3.5.4
 
 # These settings probably don't need any change
 export WINEPREFIX=/opt/wine64
@@ -53,8 +53,6 @@ cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
 cp electrum-koto/LICENCE .
 cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
 cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/gui/qt/
-# Build Qt resources
-#wine $WINEPREFIX/drive_c/python$PYTHON_VERSION/Scripts/pyrcc5.exe C:/electrum-koto/icons.qrc -o C:/electrum-koto/gui/qt/icons_rc.py
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
@@ -78,11 +76,7 @@ popd
 
 # build NSIS installer
 # $VERSION could be passed to the electrum.nsi script, but this would require some rewriting in the script iself.
-if [ -d "$WINEPREFIX/drive_c/Program Files (x86)" ]; then
-    wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
-else
-    wine "$WINEPREFIX/drive_c/Program Files/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
-fi
+wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
 
 cd dist
 mv electrum-setup.exe $NAME_ROOT-$VERSION-setup.exe
