@@ -271,6 +271,8 @@ class Abstract_Wallet(PrintError):
                 self.pruned_txo = {}
                 self.spent_outpoints = {}
                 self.history = {}
+                self.verified_tx = {}
+                self.transactions = {}
                 self.save_transactions()
 
     @profiler
@@ -718,8 +720,7 @@ class Abstract_Wallet(PrintError):
     def get_conflicting_transactions(self, tx):
         """Returns a set of transaction hashes from the wallet history that are
         directly conflicting with tx, i.e. they have common outpoints being
-        spent with tx. If the tx is already in wallet history, that will not be
-        reported as a conflict.
+        spent with tx.
         """
         conflicting_txns = set()
         with self.transaction_lock:
@@ -733,15 +734,11 @@ class Abstract_Wallet(PrintError):
                 # this outpoint (ser) has already been spent, by spending_tx
                 assert spending_tx_hash in self.transactions
                 conflicting_txns |= {spending_tx_hash}
-            txid = tx.txid()
-            if txid in conflicting_txns:
-                # this tx is already in history, so it conflicts with itself
-                if len(conflicting_txns) > 1:
-                    raise Exception('Found conflicting transactions already in wallet history.')
-                conflicting_txns -= {txid}
             return conflicting_txns
 
     def add_transaction(self, tx_hash, tx):
+        if tx in self.transactions:
+            return True
         is_coinbase = False
         if (len(tx.inputs()) > 0):
             is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
