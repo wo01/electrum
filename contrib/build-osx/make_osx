@@ -21,7 +21,7 @@ OS_VER=`sw_vers -productVersion | perl -nle 'print $1 if(/^(\d+\.\d+)/);'`
 # Paramterize
 PYTHON_VERSION=3.6.4
 BUILDDIR=/tmp/electrum-build
-PACKAGE='Electrum for Koto'
+PACKAGE='Electrum-Koto'
 GIT_REPO=https://github.com/wo01/electrum
 
 
@@ -76,4 +76,4 @@ info "Building binary"
 pyinstaller --noconfirm --ascii --name $VERSION contrib/build-osx/osx.spec || fail "Could not build binary"
 
 info "Creating .DMG"
-hdiutil create -fs HFS+ -volname $PACKAGE -srcfolder dist/$PACKAGE.app dist/electrum-$VERSION-$OS_VER.dmg || fail "Could not create .DMG"
+hdiutil create -fs HFS+ -volname "$PACKAGE" -srcfolder "dist/$PACKAGE.app" dist/electrum-koto-$VERSION-$OS_VER.dmg || fail "Could not create .DMG"
