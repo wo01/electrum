@@ -78,9 +78,9 @@ TX_HEIGHT_UNCONFIRMED = 0
 
 
 def relayfee(network):
-    RELAY_FEE = 1000
+    from .simple_config import FEERATE_DEFAULT_RELAY
     MAX_RELAY_FEE = 50000
-    f = network.relay_fee if network and network.relay_fee else RELAY_FEE
+    f = network.relay_fee if network and network.relay_fee else FEERATE_DEFAULT_RELAY
     return min(f, MAX_RELAY_FEE)
 
 def dust_threshold(network):
@@ -463,10 +463,10 @@ class Abstract_Wallet(PrintError):
                 return height, conf, timestamp
             elif tx_hash in self.unverified_tx:
                 height = self.unverified_tx[tx_hash]
-                return height, 0, False
+                return height, 0, None
             else:
                 # local transaction
-                return TX_HEIGHT_LOCAL, 0, False
+                return TX_HEIGHT_LOCAL, 0, None
 
     def get_txpos(self, tx_hash):
         "return position, even if the tx is unverified"
@@ -1706,7 +1706,7 @@ class Abstract_Wallet(PrintError):
 
     def price_at_timestamp(self, txid, price_func):
         height, conf, timestamp = self.get_tx_height(txid)
-        return price_func(timestamp)
+        return price_func(timestamp if timestamp else time.time())
 
     def unrealized_gains(self, domain, price_func, ccy):
         coins = self.get_utxos(domain)

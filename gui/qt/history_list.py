@@ -33,7 +33,7 @@ from electrum.util import block_explorer_URL
 from electrum.util import timestamp_to_datetime, profiler
 
 try:
-    from electrum.plot import plot_history
+    from electrum.plot import plot_history, NothingToPlotException
 except:
     plot_history = None
 
@@ -158,15 +158,16 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
 
     def show_summary(self):
         h = self.summary
-        format_amount = lambda x: self.parent.format_amount(x) + ' '+ self.parent.base_unit()
+        start_date = h.get('start_date')
+        end_date = h.get('end_date')
+        if start_date is None or end_date is None:
+            self.parent.show_message(_("Nothing to summarize."))
+            return
+        format_amount = lambda x: self.parent.format_amount(x) + ' ' + self.parent.base_unit()
         d = WindowModalDialog(self, _("Summary"))
         d.setMinimumSize(600, 150)
         vbox = QVBoxLayout()
         grid = QGridLayout()
-        start_date = h.get('start_date')
-        end_date = h.get('end_date')
-        if start_date is None and end_date is None:
-            return
         grid.addWidget(QLabel(_("Start")), 0, 0)
         grid.addWidget(QLabel(start_date.isoformat(' ')), 0, 1)
         grid.addWidget(QLabel(_("End")), 1, 0)
@@ -190,10 +191,15 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
 
     def plot_history_dialog(self):
         if plot_history is None:
+            self.parent.show_message(
+                _("Can't plot history.") + '\n' +
+                _("Perhaps some dependencies are missing...") + " (matplotlib?)")
             return
-        if len(self.transactions) > 0:
+        try:
             plt = plot_history(self.transactions)
             plt.show()
+        except NothingToPlotException as e:
+            self.parent.show_message(str(e))
 
     @profiler
     def on_update(self):
