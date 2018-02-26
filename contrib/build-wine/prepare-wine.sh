@@ -30,18 +30,18 @@ verify_signature() {
         return 0
     else
         echo "$out" >&2
-        exit 0
+        exit 1
     fi
 }
 
 verify_hash() {
-    local file=$1 expected_hash=$2 out=
+    local file=$1 expected_hash=$2
     actual_hash=$(sha256sum $file | awk '{print $1}')
     if [ "$actual_hash" == "$expected_hash" ]; then
         return 0
     else
         echo "$file $actual_hash (unexpected hash)" >&2
-        exit 0
+        exit 1
     fi
 }
 
@@ -122,4 +122,4 @@ cp $WINEPREFIX/drive_c/python$PYTHON_VERSION/Lib/site-packages/PyQt5/Qt/bin/* $W
 # install yescrypt
 $PYTHON -m pip install $YESCRYPT_HASH_PYTHON_URL
 
-echo "Wine is configured. Please run prepare-pyinstaller.sh"
+echo "Wine is configured."

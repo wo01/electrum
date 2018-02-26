@@ -103,7 +103,7 @@ class Fiat(object):
         return 'Fiat(%s)'% self.__str__()
 
     def __str__(self):
-        if self.value is None:
+        if self.value.is_nan():
             return _('No Data')
         else:
             return "{:.2f}".format(self.value) + ' ' + self.ccy
@@ -419,6 +419,8 @@ def format_satoshis(x, is_diff=False, num_zeros = 0, decimal_point = 8, whitespa
     return result
 
 def timestamp_to_datetime(timestamp):
+    if timestamp is None:
+        return None
     return datetime.fromtimestamp(timestamp)
 
 def format_time(timestamp):
