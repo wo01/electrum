@@ -38,9 +38,8 @@ except:
 
 # note: this list needs to be kept in sync with another in kivy
 TX_ICONS = [
-    "warning.png",
-    "warning.png",
     "unconfirmed.png",
+    "warning.png",
     "unconfirmed.png",
     "offline_tx.png",
     "clock1.png",
@@ -64,6 +63,9 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
         self.end_timestamp = None
         self.years = []
 
+    def format_date(self, d):
+        return str(datetime.date(d.year, d.month, d.day)) if d else _('None')
+
     def refresh_headers(self):
         headers = ['', '', _('Date'), _('Description'), _('Amount'), _('Balance')]
         fx = self.parent.fx
@@ -82,11 +84,14 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
 
     def on_combo(self, x):
         s = self.period_combo.itemText(x)
+        x = s == _('Custom')
+        self.start_button.setEnabled(x)
+        self.end_button.setEnabled(x)
         if s == _('All'):
             self.start_timestamp = None
             self.end_timestamp = None
-        elif s == _('Custom'):
-            start_date = self.select_date()
+            self.start_button.setText("-")
+            self.end_button.setText("-")
         else:
             try:
                 year = int(s)
@@ -96,89 +101,80 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
             end_date = datetime.datetime(year+1, 1, 1)
             self.start_timestamp = time.mktime(start_date.timetuple())
             self.end_timestamp = time.mktime(end_date.timetuple())
+            self.start_button.setText(_('From') + ' ' + self.format_date(start_date))
+            self.end_button.setText(_('To') + ' ' + self.format_date(end_date))
         self.update()
 
-    def get_list_header(self):
+    def create_toolbar_buttons(self):
         self.period_combo = QComboBox()
+        self.start_button = QPushButton('-')
+        self.start_button.pressed.connect(self.select_start_date)
+        self.start_button.setEnabled(False)
+        self.end_button = QPushButton('-')
+        self.end_button.pressed.connect(self.select_end_date)
+        self.end_button.setEnabled(False)
         self.period_combo.addItems([_('All'), _('Custom')])
         self.period_combo.activated.connect(self.on_combo)
-        self.summary_button = QPushButton(_('Summary'))
-        self.summary_button.pressed.connect(self.show_summary)
-        self.export_button = QPushButton(_('Export'))
-        self.export_button.pressed.connect(self.export_history_dialog)
-        self.plot_button = QPushButton(_('Plot'))
-        self.plot_button.pressed.connect(self.plot_history_dialog)
-        return self.period_combo, self.summary_button, self.export_button, self.plot_button
+        return self.period_combo, self.start_button, self.end_button
 
-    def select_date(self):
-        h = self.summary
-        d = WindowModalDialog(self, _("Custom dates"))
+    def on_hide_toolbar(self):
+        self.start_timestamp = None
+        self.end_timestamp = None
+        self.update()
+
+    def select_start_date(self):
+        self.start_timestamp = self.select_date(self.start_button)
+        self.update()
+
+    def select_end_date(self):
+        self.end_timestamp = self.select_date(self.end_button)
+        self.update()
+
+    def select_date(self, button):
+        d = WindowModalDialog(self, _("Select date"))
         d.setMinimumSize(600, 150)
-        d.b = True
-        d.start_date = None
-        d.end_date = None
+        d.date = None
         vbox = QVBoxLayout()
-        grid = QGridLayout()
-        start_edit = QPushButton()
-        def on_start():
-            start_edit.setText('')
-            d.b = True
-            d.start_date = None
-        start_edit.pressed.connect(on_start)
-        def on_end():
-            end_edit.setText('')
-            d.b = False
-            d.end_date = None
-        end_edit = QPushButton()
-        end_edit.pressed.connect(on_end)
-        grid.addWidget(QLabel(_("Start date")), 0, 0)
-        grid.addWidget(start_edit, 0, 1)
-        grid.addWidget(QLabel(_("End date")), 1, 0)
-        grid.addWidget(end_edit, 1, 1)
         def on_date(date):
-            ts = time.mktime(date.toPyDate().timetuple())
-            if d.b:
-                d.start_date = ts
-                start_edit.setText(date.toString())
-            else:
-                d.end_date = ts
-                end_edit.setText(date.toString())
+            d.date = date
         cal = QCalendarWidget()
         cal.setGridVisible(True)
         cal.clicked[QDate].connect(on_date)
-        vbox.addLayout(grid)
         vbox.addWidget(cal)
         vbox.addLayout(Buttons(OkButton(d), CancelButton(d)))
         d.setLayout(vbox)
         if d.exec_():
-            self.start_timestamp = d.start_date
-            self.end_timestamp = d.end_date
-            self.update()
+            if d.date is None:
+                return None
+            date = d.date.toPyDate()
+            button.setText(self.format_date(date))
+            return time.mktime(date.timetuple())
 
     def show_summary(self):
         h = self.summary
         start_date = h.get('start_date')
         end_date = h.get('end_date')
-        if start_date is None or end_date is None:
-            self.parent.show_message(_("Nothing to summarize."))
-            return
-        format_amount = lambda x: self.parent.format_amount(x) + ' ' + self.parent.base_unit()
+        format_amount = lambda x: self.parent.format_amount(x.value) + ' ' + self.parent.base_unit()
         d = WindowModalDialog(self, _("Summary"))
         d.setMinimumSize(600, 150)
         vbox = QVBoxLayout()
         grid = QGridLayout()
         grid.addWidget(QLabel(_("Start")), 0, 0)
-        grid.addWidget(QLabel(start_date.isoformat(' ')), 0, 1)
+        grid.addWidget(QLabel(self.format_date(start_date)), 0, 1)
         grid.addWidget(QLabel(_("End")), 1, 0)
-        grid.addWidget(QLabel(end_date.isoformat(' ')), 1, 1)
+        grid.addWidget(QLabel(self.format_date(end_date)), 1, 1)
         grid.addWidget(QLabel(_("Initial balance")), 2, 0)
-        grid.addWidget(QLabel(format_amount(h['start_balance'].value)), 2, 1)
+        grid.addWidget(QLabel(format_amount(h['start_balance'])), 2, 1)
         grid.addWidget(QLabel(str(h.get('start_fiat_balance'))), 2, 2)
         grid.addWidget(QLabel(_("Final balance")), 4, 0)
-        grid.addWidget(QLabel(format_amount(h['end_balance'].value)), 4, 1)
+        grid.addWidget(QLabel(format_amount(h['end_balance'])), 4, 1)
         grid.addWidget(QLabel(str(h.get('end_fiat_balance'))), 4, 2)
-        grid.addWidget(QLabel(_("Income")), 6, 0)
-        grid.addWidget(QLabel(str(h.get('fiat_income'))), 6, 2)
+        grid.addWidget(QLabel(_("Income")), 5, 0)
+        grid.addWidget(QLabel(format_amount(h.get('income'))), 5, 1)
+        grid.addWidget(QLabel(str(h.get('fiat_income'))), 5, 2)
+        grid.addWidget(QLabel(_("Expenditures")), 6, 0)
+        grid.addWidget(QLabel(format_amount(h.get('expenditures'))), 6, 1)
+        grid.addWidget(QLabel(str(h.get('fiat_expenditures'))), 6, 2)
         grid.addWidget(QLabel(_("Capital gains")), 7, 0)
         grid.addWidget(QLabel(str(h.get('capital_gains'))), 7, 2)
         grid.addWidget(QLabel(_("Unrealized gains")), 8, 0)
@@ -207,12 +203,12 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
         r = self.wallet.get_full_history(domain=self.get_domain(), from_timestamp=self.start_timestamp, to_timestamp=self.end_timestamp, fx=fx)
         self.transactions = r['transactions']
         self.summary = r['summary']
-        if not self.years and self.start_timestamp is None and self.end_timestamp is None:
-            start_date = self.summary.get('start_date')
-            end_date = self.summary.get('end_date')
-            if start_date and end_date:
-                self.years = [str(i) for i in range(start_date.year, end_date.year + 1)]
-                self.period_combo.insertItems(1, self.years)
+        if not self.years and self.transactions:
+            from datetime import date
+            start_date = self.transactions[0].get('date') or date.today()
+            end_date = self.transactions[-1].get('date') or date.today()
+            self.years = [str(i) for i in range(start_date.year, end_date.year + 1)]
+            self.period_combo.insertItems(1, self.years)
         item = self.currentItem()
         current_tx = item.data(0, Qt.UserRole) if item else None
         self.clear()
