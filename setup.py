@@ -70,11 +70,11 @@ setup(
     },
     package_data={
         'electrum': [
-            'servers.json',
-            'servers_testnet.json',
+            'servers_koto.json',
+            'servers_testnet_koto.json',
             'currencies.json',
-            'checkpoints.json',
-            'checkpoints_testnet.json',
+            'checkpoints_koto.json',
+            'checkpoints_testnet_koto.json',
             'www/index.html',
             'wordlist/*.txt',
             'locale/*/LC_MESSAGES/electrum.mo',

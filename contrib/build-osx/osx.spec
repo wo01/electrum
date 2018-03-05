@@ -29,10 +29,10 @@ hiddenimports += collect_submodules('websocket')
 
 datas = [
     (electrum+'lib/currencies.json', PYPKG),
-    (electrum+'lib/servers.json', PYPKG),
-    (electrum+'lib/checkpoints.json', PYPKG),
-    (electrum+'lib/servers_testnet.json', PYPKG),
-    (electrum+'lib/checkpoints_testnet.json', PYPKG),
+    (electrum+'lib/servers_koto.json', PYPKG),
+    (electrum+'lib/checkpoints_koto.json', PYPKG),
+    (electrum+'lib/servers_testnet_koto.json', PYPKG),
+    (electrum+'lib/checkpoints_testnet_koto.json', PYPKG),
     (electrum+'lib/wordlist/english.txt', PYPKG + '/wordlist'),
     (electrum+'lib/locale', PYPKG + '/locale'),
     (electrum+'plugins', PYPKG + '_plugins'),
