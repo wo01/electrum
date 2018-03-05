@@ -143,14 +143,13 @@ class HistoryScreen(CScreen):
         ri.icon = icon
         ri.date = status_str
         ri.message = label
-        ri.value = value or 0
-        ri.amount = self.app.format_amount(value, True) if value is not None else '--'
         ri.confirmations = conf
-        if self.app.fiat_unit and date:
-            rate = self.app.fx.history_rate(date)
-            if rate:
-                s = self.app.fx.value_str(value, rate)
-                ri.quote_text = '' if s is None else s + ' ' + self.app.fiat_unit
+        if value is not None:
+            ri.is_mine = value < 0
+            if value < 0: value = - value
+            ri.amount = self.app.format_amount_and_units(value)
+            if self.app.fiat_unit and date:
+                ri.quote_text = self.app.fx.historical_value_str(value, date) + ' ' + self.app.fx.ccy
         return ri
 
     def update(self, see_all=False):
@@ -162,12 +161,7 @@ class HistoryScreen(CScreen):
         count = 0
         for item in history:
             ri = self.get_card(*item)
-            count += 1
             history_card.add_widget(ri)
-
-        if count == 0:
-            msg = _('This screen shows your list of transactions. It is currently empty.')
-            history_card.add_widget(EmptyLabel(text=msg))
 
 
 class SendScreen(CScreen):
@@ -379,6 +373,8 @@ class ReceiveScreen(CScreen):
 
     def save_request(self):
         addr = self.screen.address
+        if not addr:
+            return
         amount = self.screen.amount
         message = self.screen.message
         amount = self.app.get_amount(amount) if amount else 0

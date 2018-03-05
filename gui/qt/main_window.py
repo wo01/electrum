@@ -40,7 +40,8 @@ from .exception_window import Exception_Hook
 from PyQt5.QtWidgets import *
 
 from electrum import keystore, simple_config
-from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS, NetworkConstants
+from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS
+from electrum import constants
 from electrum.plugins import run_hook
 from electrum.i18n import _
 from electrum.util import (format_time, format_satoshis, PrintError,
@@ -371,7 +372,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.setGeometry(100, 100, 840, 400)
 
     def watching_only_changed(self):
-        name = "Electrum for Koto Testnet" if NetworkConstants.TESTNET else "Electrum for Koto"
+        name = "Electrum for KotoTestnet" if constants.net.TESTNET else "Electrum for Koto"
         title = '%s %s  -  %s' % (name, self.wallet.electrum_version,
                                         self.wallet.basename())
         extra = [self.wallet.storage.get('wallet_type', '?')]
@@ -3172,7 +3173,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.wallet.save_transactions(write=True)
             # need to update at least: history_list, utxo_list, address_list
             self.need_update.set()
-            self.msg_box(QPixmap(":icons/offline_tx.png"), None, _('Success'), _("Transaction saved successfully"))
+            self.msg_box(QPixmap(":icons/offline_tx.png"), None, _('Success'), _("Transaction added to wallet history"))
             return True
 
 

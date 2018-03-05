@@ -25,6 +25,7 @@ import threading
 
 from . import util
 from . import bitcoin
+from . import constants
 from .bitcoin import *
 
 try:
@@ -106,7 +107,7 @@ class Blockchain(util.PrintError):
         self.config = config
         self.catch_up = None # interface catching up
         self.checkpoint = checkpoint
-        self.checkpoints = bitcoin.NetworkConstants.CHECKPOINTS
+        self.checkpoints = constants.net.CHECKPOINTS
         self.parent_id = parent_id
         self.lock = threading.Lock()
         with self.lock:
@@ -162,7 +163,7 @@ class Blockchain(util.PrintError):
             raise BaseException("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
         if height % 2016 != 0 and height // 2016 < len(self.checkpoints):
             return
-        if bitcoin.NetworkConstants.TESTNET:
+        if constants.net.TESTNET:
             return
         bits = self.target_to_bits(target)
         if bits != header.get('bits'):
@@ -276,7 +277,7 @@ class Blockchain(util.PrintError):
         if height == -1:
             return '0000000000000000000000000000000000000000000000000000000000000000'
         elif height == 0:
-            return bitcoin.NetworkConstants.GENESIS
+            return constants.net.GENESIS
         elif height < len(self.checkpoints) * 2016:
             assert (height+1) % 2016 == 0, height
             index = height // 2016
@@ -358,7 +359,8 @@ class Blockchain(util.PrintError):
         return bnNew
 
     def get_target(self, height, chain=None):
-        if bitcoin.NetworkConstants.TESTNET:
+        # compute target from chunk x, used in chunk x+1
+        if constants.net.TESTNET:
             return 0
         if height == -1:
             return MAX_TARGET
@@ -395,7 +397,7 @@ class Blockchain(util.PrintError):
             #self.print_error("cannot connect at height", height)
             return False
         if height == 0:
-            return hash_header(header) == bitcoin.NetworkConstants.GENESIS
+            return hash_header(header) == constants.net.GENESIS
         try:
             prev_hash = self.get_hash(height - 1)
         except:

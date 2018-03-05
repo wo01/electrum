@@ -11,47 +11,46 @@ Builder.load_string('''
     title: _('Transaction Fees')
     size_hint: 0.8, 0.8
     pos_hint: {'top':0.9}
+    method: 0
     BoxLayout:
         orientation: 'vertical'
         BoxLayout:
             orientation: 'horizontal'
             size_hint: 1, 0.5
             Label:
-                text: (_('Target') if dynfees.active else _('Fixed rate')) + ':'
-            Label:
-                id: fee_target
-                text: ''
+                text: _('Method') + ':'
+            Button:
+                text: _('Mempool') if root.method == 2 else _('ETA') if root.method == 1 else _('Static')
+                background_color: (0,0,0,0)
+                bold: True
+                on_release:
+                    root.method  = (root.method + 1) % 3
+                    root.update_slider()
+                    root.update_text()
         BoxLayout:
             orientation: 'horizontal'
             size_hint: 1, 0.5
             Label:
-                text: (_('Current rate') if dynfees.active else _('Estimate')) + ':'
+                text: (_('Target') if root.method > 0 else _('Fee')) + ':'
             Label:
-                id: fee_estimate
+                id: fee_target
                 text: ''
         Slider:
             id: slider
             range: 0, 4
             step: 1
             on_value: root.on_slider(self.value)
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint: 1, 0.5
-            Label:
-                text: _('Dynamic Fees')
-            CheckBox:
-                id: dynfees
-                on_active: root.on_dynfees(self.active)
-        BoxLayout:
-            orientation: 'horizontal'
-            size_hint: 1, 0.5
-            Label:
-                text: _('Use mempool')
-            CheckBox:
-                id: mempool
-                on_active: root.on_mempool(self.active)
         Widget:
-            size_hint: 1, 1
+            size_hint: 1, 0.5
+        BoxLayout:
+            orientation: 'horizontal'
+            size_hint: 1, 0.5
+            TopLabel:
+                id: fee_estimate
+                text: ''
+                font_size: '14dp'
+        Widget:
+            size_hint: 1, 0.5
         BoxLayout:
             orientation: 'horizontal'
             size_hint: 1, 0.5
@@ -77,41 +76,51 @@ class FeeDialog(Factory.Popup):
         self.config = config
         self.fee_rate = self.config.fee_per_kb()
         self.callback = callback
-        self.mempool = self.config.use_mempool_fees()
-        self.dynfees = self.config.is_dynfee()
-        self.ids.mempool.active = self.mempool
-        self.ids.dynfees.active = self.dynfees
+        mempool = self.config.use_mempool_fees()
+        dynfees = self.config.is_dynfee()
+        self.method = (2 if mempool else 1) if dynfees else 0
         self.update_slider()
         self.update_text()
 
     def update_text(self):
-        value = int(self.ids.slider.value)
-        target, estimate = self.get_fee_text(value)
+        pos = int(self.ids.slider.value)
+        dynfees, mempool = self.get_method()
+        if self.method == 2:
+            fee_rate = self.config.depth_to_fee(pos)
+            target, estimate = self.config.get_fee_text(pos, dynfees, mempool, fee_rate)
+            msg = 'In the current network conditions, in order to be positioned %s, a transaction will require a fee of %s.' % (target, estimate)
+        elif self.method == 1:
+            fee_rate = self.config.eta_to_fee(pos)
+            target, estimate = self.config.get_fee_text(pos, dynfees, mempool, fee_rate)
+            msg = 'In the last few days, transactions that confirmed %s usually paid a fee of at least %s.' % (target.lower(), estimate)
+        else:
+            fee_rate = self.config.static_fee(pos)
+            target, estimate = self.config.get_fee_text(pos, dynfees, True, fee_rate)
+            msg = 'In the current network conditions, a transaction paying %s would be positioned %s.' % (target, estimate)
+
         self.ids.fee_target.text = target
-        self.ids.fee_estimate.text = estimate
+        self.ids.fee_estimate.text = msg
+
+    def get_method(self):
+        dynfees = self.method > 0
+        mempool = self.method == 2
+        return dynfees, mempool
 
     def update_slider(self):
         slider = self.ids.slider
-        maxp, pos, fee_rate = self.config.get_fee_slider(self.dynfees, self.mempool)
+        dynfees, mempool = self.get_method()
+        maxp, pos, fee_rate = self.config.get_fee_slider(dynfees, mempool)
         slider.range = (0, maxp)
         slider.step = 1
         slider.value = pos
 
-    def get_fee_text(self, pos):
-        dyn = self.dynfees
-        mempool = self.mempool
-        if dyn:
-            fee_rate = self.config.depth_to_fee(pos) if mempool else self.config.eta_to_fee(pos)
-        else:
-            fee_rate = self.config.static_fee(pos)
-        return self.config.get_fee_text(pos, dyn, mempool, fee_rate)
-
     def on_ok(self):
         value = int(self.ids.slider.value)
-        self.config.set_key('dynamic_fees', self.dynfees, False)
-        self.config.set_key('mempool_fees', self.mempool, False)
-        if self.dynfees:
-            if self.mempool:
+        dynfees, mempool = self.get_method()
+        self.config.set_key('dynamic_fees', dynfees, False)
+        self.config.set_key('mempool_fees', mempool, False)
+        if dynfees:
+            if mempool:
                 self.config.set_key('depth_level', value, True)
             else:
                 self.config.set_key('fee_level', value, True)
@@ -120,14 +129,4 @@ class FeeDialog(Factory.Popup):
         self.callback()
 
     def on_slider(self, value):
-        self.update_text()
-
-    def on_dynfees(self, b):
-        self.dynfees = b
-        self.update_slider()
-        self.update_text()
-
-    def on_mempool(self, b):
-        self.mempool = b
-        self.update_slider()
         self.update_text()
