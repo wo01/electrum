@@ -15,6 +15,8 @@ LIBUSB_SHA256=acdde63a40b1477898aee6153f9d91d1a2e8a5d93f832ca8ab876498f3a6d2b8
 
 PYTHON_VERSION=3.5.4
 
+YESCRYPT_HASH_PYTHON_URL=https://github.com/wo01/yescrypt_python/releases/download/1.0/yescrypt-1.0-cp35-cp35m-win32.whl
+
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
 #export WINEARCH='win32'
@@ -124,5 +126,8 @@ cp libusb/MS32/dll/libusb-1.0.dll $WINEPREFIX/drive_c/python$PYTHON_VERSION/
 
 # add dlls needed for pyinstaller:
 cp $WINEPREFIX/drive_c/python$PYTHON_VERSION/Lib/site-packages/PyQt5/Qt/bin/* $WINEPREFIX/drive_c/python$PYTHON_VERSION/
+
+# install yescrypt
+$PYTHON -m pip install $YESCRYPT_HASH_PYTHON_URL
 
 echo "Wine is configured."

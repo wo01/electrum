@@ -11,7 +11,7 @@ else:
     raise BaseException('no name')
 
 
-home = 'C:\\electrum\\'
+home = 'C:\\electrum-koto\\'
 
 # see https://github.com/pyinstaller/pyinstaller/issues/2005
 hiddenimports = []
@@ -28,10 +28,10 @@ binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]
 
 datas = [
     (home+'lib/currencies.json', 'electrum'),
-    (home+'lib/servers.json', 'electrum'),
-    (home+'lib/checkpoints.json', 'electrum'),
-    (home+'lib/servers_testnet.json', 'electrum'),
-    (home+'lib/checkpoints_testnet.json', 'electrum'),
+    (home+'lib/servers_koto.json', 'electrum'),
+    (home+'lib/checkpoints_koto.json', 'electrum'),
+    (home+'lib/servers_testnet_koto.json', 'electrum'),
+    (home+'lib/checkpoints_testnet_koto.json', 'electrum'),
     (home+'lib/wordlist/english.txt', 'electrum/wordlist'),
     (home+'lib/locale', 'electrum/locale'),
     (home+'plugins', 'electrum_plugins'),
@@ -90,7 +90,7 @@ exe_standalone = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons/electrum.ico',
+    icon=home+'icons/kotocolor.ico',
     console=False)
     # console=True makes an annoying black box pop up, but it does make Electrum output command line commands, with this turned off no output will be given but commands can still be used
 
@@ -103,7 +103,7 @@ exe_portable = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons/electrum.ico',
+    icon=home+'icons/kotocolor.ico',
     console=False)
 
 #####
@@ -117,7 +117,7 @@ exe_dependent = EXE(
     debug=False,
     strip=None,
     upx=False,
-    icon=home+'icons/electrum.ico',
+    icon=home+'icons/kotocolor.ico',
     console=False)
 
 coll = COLLECT(
@@ -128,6 +128,6 @@ coll = COLLECT(
     strip=None,
     upx=True,
     debug=False,
-    icon=home+'icons/electrum.ico',
+    icon=home+'icons/kotocolor.ico',
     console=False,
     name=os.path.join('dist', 'electrum'))

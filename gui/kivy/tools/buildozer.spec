@@ -1,13 +1,13 @@
 [app]
 
 # (str) Title of your application
-title = Electrum
+title = Electrum for Koto
 
 # (str) Package name
 package.name = Electrum
 
 # (str) Package domain (needed for android/ios packaging)
-package.domain = org.electrum
+package.domain = info.kotocoin.electrum
 
 # (str) Source code where the main.py live
 source.dir = .
@@ -31,14 +31,14 @@ version.filename = %(source.dir)s/contrib/versions.py
 #version = 1.9.8
 
 # (list) Application requirements
-requirements = python3crystax==3.6, android, openssl, plyer, kivy==master
+requirements = python3crystax==3.6, android, openssl, plyer, kivy==master, yescrypt
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/gui/kivy/theming/splash.png
-presplash.filename = %(source.dir)s/icons/electrum_presplash.png
+presplash.filename = %(source.dir)s/icons/koto_presplash.png
 
 # (str) Icon of the application
-icon.filename = %(source.dir)s/icons/electrum_launcher.png
+icon.filename = %(source.dir)s/icons/kotocolor/128x128.png
 
 # (str) Supported orientation (one of landscape, portrait or all)
 orientation = portrait
@@ -125,6 +125,9 @@ android.whitelist = lib-dynload/_csv.so
 
 # local version that merges branch 866
 p4a.source_dir = /opt/python-for-android
+
+# (str) The directory in which python-for-android should look for your own build recipes (if any)
+p4a.local_recipes = contrib/local_recipes
 
 #
 # iOS specific

@@ -5,10 +5,10 @@ from PyInstaller.utils.hooks import collect_data_files, collect_submodules, coll
 import sys
 import os
 
-PACKAGE='Electrum'
+PACKAGE='Electrum-Koto'
 PYPKG='electrum'
 MAIN_SCRIPT='electrum'
-ICONS_FILE='electrum.icns'
+ICONS_FILE='kotocolor.icns'
 
 for i, x in enumerate(sys.argv):
     if x == '--name':
@@ -29,10 +29,10 @@ hiddenimports += collect_submodules('websocket')
 
 datas = [
     (electrum+'lib/currencies.json', PYPKG),
-    (electrum+'lib/servers.json', PYPKG),
-    (electrum+'lib/checkpoints.json', PYPKG),
-    (electrum+'lib/servers_testnet.json', PYPKG),
-    (electrum+'lib/checkpoints_testnet.json', PYPKG),
+    (electrum+'lib/servers_koto.json', PYPKG),
+    (electrum+'lib/checkpoints_koto.json', PYPKG),
+    (electrum+'lib/servers_testnet_koto.json', PYPKG),
+    (electrum+'lib/checkpoints_testnet_koto.json', PYPKG),
     (electrum+'lib/wordlist/english.txt', PYPKG + '/wordlist'),
     (electrum+'lib/locale', PYPKG + '/locale'),
     (electrum+'plugins', PYPKG + '_plugins'),

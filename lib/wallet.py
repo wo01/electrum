@@ -653,7 +653,7 @@ class Abstract_Wallet(PrintError):
         received, sent = self.get_addr_io(address)
         return sum([v for height, v, is_cb in received.values()])
 
-    # return the balance of a bitcoin address: confirmed and matured, unconfirmed, unmatured
+    # return the balance of a koto address: confirmed and matured, unconfirmed, unmatured
     def get_addr_balance(self, address):
         received, sent = self.get_addr_io(address)
         c = u = x = 0
@@ -783,7 +783,9 @@ class Abstract_Wallet(PrintError):
             # BUT we track is_mine inputs in a txn, and during subsequent calls
             # of add_transaction tx, we might learn of more-and-more inputs of
             # being is_mine, as we roll the gap_limit forward
-            is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
+            is_coinbase = False
+            if (len(tx.inputs()) > 0):
+                is_coinbase = tx.inputs()[0]['type'] == 'coinbase'
             tx_height = self.get_tx_height(tx_hash)[0]
             is_mine = any([self.is_mine(txin['address']) for txin in tx.inputs()])
             # do not save if tx is local and not mine
@@ -1153,7 +1155,7 @@ class Abstract_Wallet(PrintError):
             _type, data, value = o
             if _type == TYPE_ADDRESS:
                 if not is_address(data):
-                    raise BaseException("Invalid bitcoin address:" + data)
+                    raise BaseException("Invalid kot address:" + data)
             if value == '!':
                 if i_max is not None:
                     raise BaseException("More than one output set to spend max")

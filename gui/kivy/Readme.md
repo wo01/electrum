@@ -19,6 +19,7 @@ git remote add agilewalker https://github.com/agilewalker/python-for-android
 git checkout a036f4442b6a23
 git fetch agilewalker
 git merge agilewalker/master
+patch -p1 < $HOME/electrum-koto/contrib/p4a.patch
 ```
 
 ## 2. Install buildozer

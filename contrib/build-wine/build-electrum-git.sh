@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NAME_ROOT=electrum
+NAME_ROOT=electrum-koto
 PYTHON_VERSION=3.5.4
 
 # These settings probably don't need any change
@@ -16,16 +16,17 @@ PYTHON="wine $PYHOME/python.exe -OO -B"
 cd `dirname $0`
 set -e
 
+mkdir -p tmp
 cd tmp
 
-for repo in electrum electrum-locale electrum-icons; do
+for repo in electrum-koto electrum-locale electrum-icons; do
     if [ -d $repo ]; then
 	cd $repo
 	git pull
 	git checkout master
 	cd ..
     else
-	URL=https://github.com/spesmilo/$repo.git
+	URL=https://github.com/wo01/$repo.git
 	git clone -b master $URL $repo
     fi
 done
@@ -38,28 +39,28 @@ for i in ./locale/*; do
 done
 popd
 
-pushd electrum
+pushd electrum-koto
 if [ ! -z "$1" ]; then
     git checkout $1
 fi
 
-VERSION=`git describe --tags`
+VERSION=${VERSION:-`git describe --tags`}
 echo "Last commit: $VERSION"
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
-rm -rf $WINEPREFIX/drive_c/electrum
-cp -r electrum $WINEPREFIX/drive_c/electrum
-cp electrum/LICENCE .
-cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum/lib/
-cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum/gui/qt/
+rm -rf $WINEPREFIX/drive_c/electrum-koto
+cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
+cp electrum-koto/LICENCE .
+cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
+cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
 
 $PYTHON -m pip install -r ../../deterministic-build/requirements-hw.txt
 
-pushd $WINEPREFIX/drive_c/electrum
+pushd $WINEPREFIX/drive_c/electrum-koto
 $PYTHON setup.py install
 popd
 

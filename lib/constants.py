@@ -46,8 +46,8 @@ class BitcoinMainnet:
     SEGWIT_HRP = "bc"
     GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
     DEFAULT_PORTS = {'t': '50001', 's': '50002'}
-    DEFAULT_SERVERS = read_json('servers.json', {})
-    CHECKPOINTS = read_json('checkpoints.json', [])
+    DEFAULT_SERVERS = read_json('servers_koto.json', {})
+    CHECKPOINTS = read_json('checkpoints_koto.json', [])
 
     XPRV_HEADERS = {
         'standard':    0x0488ade4,  # xprv
@@ -74,8 +74,8 @@ class BitcoinTestnet:
     SEGWIT_HRP = "tb"
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
-    DEFAULT_SERVERS = read_json('servers_testnet.json', {})
-    CHECKPOINTS = read_json('checkpoints_testnet.json', [])
+    DEFAULT_SERVERS = read_json('servers_testnet_koto.json', {})
+    CHECKPOINTS = read_json('checkpoints_testnet_koto.json', [])
 
     XPRV_HEADERS = {
         'standard':    0x04358394,  # tprv
@@ -93,15 +93,27 @@ class BitcoinTestnet:
     }
 
 
+class KotoMainnet(BitcoinMainnet):
+    ADDRTYPE_P2PKH = [0x18, 0x36]
+    ADDRTYPE_P2SH = [0x18, 0x3b]
+    SEGWIT_HRP = "koto"
+    GENESIS = "6d424c350729ae633275d51dc3496e16cd1b1d195c164da00f39c499a2e9959e"
+
+class KotoTestnet(BitcoinTestnet):
+    ADDRTYPE_P2PKH = [0x18, 0xa4]
+    ADDRTYPE_P2SH = [0x18, 0x39]
+    SEGWIT_HRP = "toko"
+    GENESIS = "bf84afbde20c2d213b68b231ddb585ab616ef7567226820f00d9b397d774d2f0"
+
 # don't import net directly, import the module instead (so that net is singleton)
-net = BitcoinMainnet
+net = KotoMainnet
 
 
 def set_mainnet():
     global net
-    net = BitcoinMainnet
+    net = KotoMainnet
 
 
 def set_testnet():
     global net
-    net = BitcoinTestnet
+    net = KotoTestnet

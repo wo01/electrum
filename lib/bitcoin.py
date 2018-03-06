@@ -262,15 +262,15 @@ def hash_160(public_key):
 
 
 def hash160_to_b58_address(h160, addrtype, witness_program_version=1):
-    s = bytes([addrtype])
+    s = bytes(addrtype)
     s += h160
     return base_encode(s+Hash(s)[0:4], base=58)
 
 
 def b58_address_to_hash160(addr):
     addr = to_bytes(addr, 'ascii')
-    _bytes = base_decode(addr, 25, base=58)
-    return _bytes[0], _bytes[1:21]
+    _bytes = base_decode(addr, 26, base=58)
+    return _bytes[0:2], _bytes[2:22]
 
 
 def hash160_to_p2pkh(h160):
@@ -337,11 +337,11 @@ def address_to_script(addr):
         script += push_script(bh2u(bytes(witprog)))
         return script
     addrtype, hash_160 = b58_address_to_hash160(addr)
-    if addrtype == constants.net.ADDRTYPE_P2PKH:
+    if addrtype == bytes(constants.net.ADDRTYPE_P2PKH):
         script = '76a9'                                      # op_dup, op_hash_160
         script += push_script(bh2u(hash_160))
         script += '88ac'                                     # op_equalverify, op_checksig
-    elif addrtype == constants.net.ADDRTYPE_P2SH:
+    elif addrtype == bytes(constants.net.ADDRTYPE_P2SH):
         script = 'a9'                                        # op_hash_160
         script += push_script(bh2u(hash_160))
         script += '87'                                       # op_equal
@@ -533,7 +533,7 @@ def is_b58_address(addr):
         addrtype, h = b58_address_to_hash160(addr)
     except Exception as e:
         return False
-    if addrtype not in [constants.net.ADDRTYPE_P2PKH, constants.net.ADDRTYPE_P2SH]:
+    if addrtype not in [bytes(constants.net.ADDRTYPE_P2PKH), bytes(constants.net.ADDRTYPE_P2SH)]:
         return False
     return addr == hash160_to_b58_address(h, addrtype)
 
@@ -572,7 +572,7 @@ from ecdsa.util import string_to_number, number_to_string
 
 def msg_magic(message):
     length = bfh(var_int(len(message)))
-    return b"\x18Bitcoin Signed Message:\n" + length + message
+    return b"\x18Koto Signed Message:\n" + length + message
 
 
 def verify_message(address, sig, message):

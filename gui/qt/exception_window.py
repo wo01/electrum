@@ -51,7 +51,7 @@ issue_template = """<h2>Traceback</h2>
   <li>Locale: {locale}</li>
 </ul>
 """
-report_server = "https://crashhub.electrum.org/crash"
+report_server = "https://crashhub.kotocoin.info/crash"
 
 
 class Exception_Window(QWidget):

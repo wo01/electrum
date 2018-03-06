@@ -35,7 +35,7 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
             usr_share = os.path.expanduser('~/.local/share')
     data_files += [
         (os.path.join(usr_share, 'applications/'), ['electrum.desktop']),
-        (os.path.join(usr_share, 'pixmaps/'), ['icons/electrum.png'])
+        (os.path.join(usr_share, 'pixmaps/'), ['icons/kotocolor.png'])
     ]
 
 setup(
@@ -70,11 +70,11 @@ setup(
     },
     package_data={
         'electrum': [
-            'servers.json',
-            'servers_testnet.json',
+            'servers_koto.json',
+            'servers_testnet_koto.json',
             'currencies.json',
-            'checkpoints.json',
-            'checkpoints_testnet.json',
+            'checkpoints_koto.json',
+            'checkpoints_testnet_koto.json',
             'www/index.html',
             'wordlist/*.txt',
             'locale/*/LC_MESSAGES/electrum.mo',
@@ -82,10 +82,10 @@ setup(
     },
     scripts=['electrum'],
     data_files=data_files,
-    description="Lightweight Bitcoin Wallet",
-    author="Thomas Voegtlin",
-    author_email="thomasv@electrum.org",
+    description="Lightweight Koto Wallet",
+    author="WO",
+    author_email="wo@kotocoin.info",
     license="MIT Licence",
-    url="https://electrum.org",
-    long_description="""Lightweight Bitcoin Wallet"""
+    url="https://electrum.kotocoin.info",
+    long_description="""Lightweight Koto Wallet"""
 )

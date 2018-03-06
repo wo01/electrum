@@ -15,13 +15,14 @@ test -n "$build_dir" -a -d "$build_dir" || exit
 cd $build_dir/../..
 
 export PYTHONHASHSEED=22
-VERSION=`git describe --tags`
+VERSION=${VERSION:-`git describe --tags`}
+OS_VER=`sw_vers -productVersion | perl -nle 'print $1 if(/^(\d+\.\d+)/);'`
 
 # Paramterize
 PYTHON_VERSION=3.6.4
 BUILDDIR=/tmp/electrum-build
-PACKAGE=Electrum
-GIT_REPO=https://github.com/spesmilo/electrum
+PACKAGE='Electrum-Koto'
+GIT_REPO=https://github.com/wo01/electrum
 
 
 info "Installing Python $PYTHON_VERSION"
@@ -81,4 +82,4 @@ info "Building binary"
 pyinstaller --noconfirm --ascii --name $VERSION contrib/build-osx/osx.spec || fail "Could not build binary"
 
 info "Creating .DMG"
-hdiutil create -fs HFS+ -volname $PACKAGE -srcfolder dist/$PACKAGE.app dist/electrum-$VERSION.dmg || fail "Could not create .DMG"
+hdiutil create -fs HFS+ -volname "$PACKAGE" -srcfolder "dist/$PACKAGE.app" dist/electrum-koto-$VERSION-$OS_VER.dmg || fail "Could not create .DMG"
