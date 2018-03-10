@@ -200,6 +200,8 @@ class Abstract_Wallet(PrintError):
         self.load_transactions()
         self.build_spent_outpoints()
 
+        self.test_addresses_sanity()
+
         # load requests
         self.receive_requests = self.storage.get('payment_requests', {})
 
@@ -328,6 +330,12 @@ class Abstract_Wallet(PrintError):
         if type(d) != dict: d={}
         self.receiving_addresses = d.get('receiving', [])
         self.change_addresses = d.get('change', [])
+
+    def test_addresses_sanity(self):
+        addrs = self.get_receiving_addresses()
+        if len(addrs) > 0:
+            if not bitcoin.is_address(addrs[0]):
+                raise Exception('The addresses in this wallet are not bitcoin addresses.')
 
     def synchronize(self):
         pass
@@ -778,6 +786,9 @@ class Abstract_Wallet(PrintError):
             return conflicting_txns
 
     def add_transaction(self, tx_hash, tx):
+        assert tx_hash, tx_hash
+        assert tx, tx
+        assert tx.is_complete()
         # we need self.transaction_lock but get_tx_height will take self.lock
         # so we need to take that too here, to enforce order of locks
         with self.lock, self.transaction_lock:
@@ -1930,14 +1941,15 @@ class Imported_Wallet(Simple_Wallet):
         try:
             txin_type, pubkey = self.keystore.import_privkey(sec, pw)
         except Exception:
-            raise BaseException('Invalid private key', sec)
+            neutered_privkey = str(sec)[:3] + '..' + str(sec)[-2:]
+            raise BaseException('Invalid private key', neutered_privkey)
         if txin_type in ['p2pkh', 'p2wpkh', 'p2wpkh-p2sh']:
             if redeem_script is not None:
-                raise BaseException('Cannot use redeem script with', txin_type, sec)
+                raise BaseException('Cannot use redeem script with', txin_type)
             addr = bitcoin.pubkey_to_address(txin_type, pubkey)
         elif txin_type in ['p2sh', 'p2wsh', 'p2wsh-p2sh']:
             if redeem_script is None:
-                raise BaseException('Redeem script required for', txin_type, sec)
+                raise BaseException('Redeem script required for', txin_type)
             addr = bitcoin.redeem_script_to_address(txin_type, redeem_script)
         else:
             raise NotImplementedError(txin_type)
