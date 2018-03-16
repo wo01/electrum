@@ -47,7 +47,7 @@ from electrum.i18n import _
 from electrum.util import (format_time, format_satoshis, PrintError,
                            format_satoshis_plain, NotEnoughFunds,
                            UserCancelled, NoDynamicFeeEstimates, profiler,
-                           export_meta, import_meta, bh2u, bfh)
+                           export_meta, import_meta, bh2u, bfh, InvalidPassword)
 from electrum import Transaction
 from electrum import util, bitcoin, commands, coinchooser
 from electrum import paymentrequest
@@ -409,13 +409,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         filename, __ = QFileDialog.getSaveFileName(self, _('Enter a filename for the copy of your wallet'), wallet_folder)
         if not filename:
             return
-
         new_path = os.path.join(wallet_folder, filename)
         if new_path != path:
             try:
                 shutil.copy2(path, new_path)
                 self.show_message(_("A copy of your wallet file was created in")+" '%s'" % str(new_path), title=_("Wallet backup created"))
-            except (IOError, os.error) as reason:
+            except BaseException as reason:
                 self.show_critical(_("Electrum was unable to copy your wallet file to the specified location.") + "\n" + str(reason), title=_("Unable to create backup"))
 
     def update_recently_visited(self, filename):
@@ -1973,10 +1972,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             return
         try:
             self.wallet.update_password(old_password, new_password, encrypt_file)
-        except BaseException as e:
+        except InvalidPassword as e:
             self.show_error(str(e))
             return
-        except:
+        except BaseException:
             traceback.print_exc(file=sys.stdout)
             self.show_error(_('Failed to update password'))
             return
@@ -2309,7 +2308,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.pay_to_URI(data)
             return
         # else if the user scanned an offline signed tx
-        data = bh2u(bitcoin.base_decode(data, length=None, base=43))
+        try:
+            data = bh2u(bitcoin.base_decode(data, length=None, base=43))
+        except BaseException as e:
+            self.show_error((_('Could not decode QR code')+':\n{}').format(e))
+            return
         tx = self.tx_from_text(data)
         if not tx:
             return
