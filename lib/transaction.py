@@ -240,10 +240,10 @@ opcodes = Enumeration("Opcodes", [
     "OP_WITHIN", "OP_RIPEMD160", "OP_SHA1", "OP_SHA256", "OP_HASH160",
     "OP_HASH256", "OP_CODESEPARATOR", "OP_CHECKSIG", "OP_CHECKSIGVERIFY", "OP_CHECKMULTISIG",
     "OP_CHECKMULTISIGVERIFY",
-    ("OP_SINGLEBYTE_END", 0xF0),
-    ("OP_DOUBLEBYTE_BEGIN", 0xF000),
-    "OP_PUBKEY", "OP_PUBKEYHASH",
-    ("OP_INVALIDOPCODE", 0xFFFF),
+    ("OP_NOP1", 0xB0),
+    ("OP_CHECKLOCKTIMEVERIFY", 0xB1), ("OP_CHECKSEQUENCEVERIFY", 0xB2),
+    "OP_NOP4", "OP_NOP5", "OP_NOP6", "OP_NOP7", "OP_NOP8", "OP_NOP9", "OP_NOP10",
+    ("OP_INVALIDOPCODE", 0xFF),
 ])
 
 
@@ -253,10 +253,6 @@ def script_GetOp(_bytes):
         vch = None
         opcode = _bytes[i]
         i += 1
-        if opcode >= opcodes.OP_SINGLEBYTE_END:
-            opcode <<= 8
-            opcode |= _bytes[i]
-            i += 1
 
         if opcode <= opcodes.OP_PUSHDATA4:
             nSize = opcode
@@ -413,7 +409,8 @@ def parse_redeemScript(s):
     redeemScript = multisig_script(pubkeys, m)
     return m, n, x_pubkeys, pubkeys, redeemScript
 
-def get_address_from_output_script(_bytes):
+
+def get_address_from_output_script(_bytes, *, net=None):
     decoded = [x for x in script_GetOp(_bytes)]
 
     # The Genesis Block, self-payments, and pay-by-IP-address payments look like:
@@ -426,19 +423,19 @@ def get_address_from_output_script(_bytes):
     # DUP HASH160 20 BYTES:... EQUALVERIFY CHECKSIG
     match = [ opcodes.OP_DUP, opcodes.OP_HASH160, opcodes.OP_PUSHDATA4, opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG ]
     if match_decoded(decoded, match):
-        return TYPE_ADDRESS, hash160_to_p2pkh(decoded[2][1])
+        return TYPE_ADDRESS, hash160_to_p2pkh(decoded[2][1], net=net)
 
     # p2sh
     match = [ opcodes.OP_HASH160, opcodes.OP_PUSHDATA4, opcodes.OP_EQUAL ]
     if match_decoded(decoded, match):
-        return TYPE_ADDRESS, hash160_to_p2sh(decoded[1][1])
+        return TYPE_ADDRESS, hash160_to_p2sh(decoded[1][1], net=net)
 
     # segwit address
     possible_witness_versions = [opcodes.OP_0] + list(range(opcodes.OP_1, opcodes.OP_16 + 1))
     for witver, opcode in enumerate(possible_witness_versions):
         match = [ opcode, opcodes.OP_PUSHDATA4 ]
         if match_decoded(decoded, match):
-            return TYPE_ADDRESS, hash_to_segwit_addr(decoded[1][1], witver=witver)
+            return TYPE_ADDRESS, hash_to_segwit_addr(decoded[1][1], witver=witver, net=net)
 
     return TYPE_SCRIPT, bh2u(_bytes)
 
@@ -592,7 +589,8 @@ def deserialize(raw):
     is_segwit = 0
     if is_segwit:
         marker = vds.read_bytes(1)
-        assert marker == b'\x01'
+        if marker != b'\x01':
+            raise ValueError('invalid txn marker byte: {}'.format(marker))
         n_vin = vds.read_compact_size()
     d['inputs'] = [parse_input(vds) for i in range(n_vin)]
     n_vout = vds.read_compact_size()
@@ -643,7 +641,7 @@ class Transaction:
         elif isinstance(raw, dict):
             self.raw = raw['hex']
         else:
-            raise BaseException("cannot initialize transaction", raw)
+            raise Exception("cannot initialize transaction", raw)
         self._inputs = None
         self._outputs = None
         self._joinsplits = None
@@ -812,7 +810,7 @@ class Transaction:
         else:
             witness = txin.get('witness', None)
             if not witness:
-                raise BaseException('wrong txin type:', txin['type'])
+                raise Exception('wrong txin type:', txin['type'])
         if self.is_txin_complete(txin) or estimate_size:
             value_field = ''
         else:
@@ -871,18 +869,17 @@ class Transaction:
 
     @classmethod
     def get_preimage_script(self, txin):
-        # only for non-segwit
+        pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
         if txin['type'] == 'p2pkh':
             return bitcoin.address_to_script(txin['address'])
         elif txin['type'] in ['p2sh', 'p2wsh', 'p2wsh-p2sh']:
-            pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             return multisig_script(pubkeys, txin['num_sig'])
         elif txin['type'] in ['p2wpkh', 'p2wpkh-p2sh']:
-            pubkey = txin['pubkeys'][0]
+            pubkey = pubkeys[0]
             pkh = bh2u(bitcoin.hash_160(bfh(pubkey)))
             return '76a9' + push_script(pkh) + '88ac'
         elif txin['type'] == 'p2pk':
-            pubkey = txin['pubkeys'][0]
+            pubkey = pubkeys[0]
             return bitcoin.public_key_to_p2pk_script(pubkey)
         else:
             raise TypeError('Unknown txin type', txin['type'])
@@ -1103,7 +1100,8 @@ class Transaction:
                     private_key = bitcoin.MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)
                     public_key = private_key.get_verifying_key()
                     sig = private_key.sign_digest_deterministic(pre_hash, hashfunc=hashlib.sha256, sigencode = ecdsa.util.sigencode_der)
-                    assert public_key.verify_digest(sig, pre_hash, sigdecode = ecdsa.util.sigdecode_der)
+                    if not public_key.verify_digest(sig, pre_hash, sigdecode = ecdsa.util.sigdecode_der):
+                        raise Exception('Sanity check verifying our own signature failed.')
                     txin['signatures'][j] = bh2u(sig) + '01'
                     #txin['x_pubkeys'][j] = pubkey
                     txin['pubkeys'][j] = pubkey # needed for fd keys

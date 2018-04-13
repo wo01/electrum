@@ -89,13 +89,13 @@ def get_payment_request(url):
             error = "payment URL not pointing to a valid server"
     elif u.scheme == 'file':
         try:
-            with open(u.path, 'r') as f:
+            with open(u.path, 'r', encoding='utf-8') as f:
                 data = f.read()
         except IOError:
             data = None
             error = "payment URL not pointing to a valid file"
     else:
-        raise BaseException("unknown scheme", url)
+        raise Exception("unknown scheme", url)
     pr = PaymentRequest(data, error)
     return pr
 
@@ -340,9 +340,9 @@ def verify_cert_chain(chain):
             x.check_date()
         else:
             if not x.check_ca():
-                raise BaseException("ERROR: Supplied CA Certificate Error")
+                raise Exception("ERROR: Supplied CA Certificate Error")
     if not cert_num > 1:
-        raise BaseException("ERROR: CA Certificate Chain Not Provided by Payment Processor")
+        raise Exception("ERROR: CA Certificate Chain Not Provided by Payment Processor")
     # if the root CA is not supplied, add it to the chain
     ca = x509_chain[cert_num-1]
     if ca.getFingerprint() not in ca_list:
@@ -352,7 +352,7 @@ def verify_cert_chain(chain):
             root = ca_list[f]
             x509_chain.append(root)
         else:
-            raise BaseException("Supplied CA Not Found in Trusted CA Store.")
+            raise Exception("Supplied CA Not Found in Trusted CA Store.")
     # verify the chain of signatures
     cert_num = len(x509_chain)
     for i in range(1, cert_num):
@@ -373,10 +373,10 @@ def verify_cert_chain(chain):
             hashBytes = bytearray(hashlib.sha512(data).digest())
             verify = pubkey.verify(sig, x509.PREFIX_RSA_SHA512 + hashBytes)
         else:
-            raise BaseException("Algorithm not supported")
+            raise Exception("Algorithm not supported")
             util.print_error(self.error, algo.getComponentByName('algorithm'))
         if not verify:
-            raise BaseException("Certificate not Signed by Provided CA Certificate Chain")
+            raise Exception("Certificate not Signed by Provided CA Certificate Chain")
 
     return x509_chain[0], ca
 
@@ -385,9 +385,9 @@ def check_ssl_config(config):
     from . import pem
     key_path = config.get('ssl_privkey')
     cert_path = config.get('ssl_chain')
-    with open(key_path, 'r') as f:
+    with open(key_path, 'r', encoding='utf-8') as f:
         params = pem.parse_private_key(f.read())
-    with open(cert_path, 'r') as f:
+    with open(cert_path, 'r', encoding='utf-8') as f:
         s = f.read()
     bList = pem.dePemList(s, "CERTIFICATE")
     # verify chain
@@ -405,10 +405,10 @@ def check_ssl_config(config):
 
 def sign_request_with_x509(pr, key_path, cert_path):
     from . import pem
-    with open(key_path, 'r') as f:
+    with open(key_path, 'r', encoding='utf-8') as f:
         params = pem.parse_private_key(f.read())
         privkey = rsakey.RSAKey(*params)
-    with open(cert_path, 'r') as f:
+    with open(cert_path, 'r', encoding='utf-8') as f:
         s = f.read()
         bList = pem.dePemList(s, "CERTIFICATE")
     certificates = pb2.X509Certificates()
@@ -453,7 +453,11 @@ class InvoiceStore(object):
 
     def set_paid(self, pr, txid):
         pr.tx = txid
-        self.paid[txid] = pr.get_id()
+        pr_id = pr.get_id()
+        self.paid[txid] = pr_id
+        if pr_id not in self.invoices:
+            # in case the user had deleted it previously
+            self.add(pr)
 
     def load(self, d):
         for k, v in d.items():

@@ -140,7 +140,8 @@ def deserialize_proxy(s):
 
 def deserialize_server(server_str):
     host, port, protocol = str(server_str).rsplit(':', 2)
-    assert protocol in 'st'
+    if protocol not in 'st':
+        raise ValueError('invalid network protocol: {}'.format(protocol))
     int(port)    # Throw if cannot be converted to int
     return host, port, protocol
 
@@ -246,7 +247,7 @@ class Network(util.DaemonThread):
             return []
         path = os.path.join(self.config.path, "recent_servers")
         try:
-            with open(path, "r") as f:
+            with open(path, "r", encoding='utf-8') as f:
                 data = f.read()
                 return json.loads(data)
         except:
@@ -258,7 +259,7 @@ class Network(util.DaemonThread):
         path = os.path.join(self.config.path, "recent_servers")
         s = json.dumps(self.recent_servers, indent=4, sort_keys=True)
         try:
-            with open(path, "w") as f:
+            with open(path, "w", encoding='utf-8') as f:
                 f.write(s)
         except:
             pass
@@ -319,7 +320,7 @@ class Network(util.DaemonThread):
         self.queue_request('server.peers.subscribe', [])
         self.request_fee_estimates()
         self.queue_request('blockchain.relayfee', [])
-        for h in self.subscribed_addresses:
+        for h in list(self.subscribed_addresses):
             self.queue_request('blockchain.scripthash.subscribe', [h])
 
     def request_fee_estimates(self):
@@ -922,7 +923,7 @@ class Network(util.DaemonThread):
                 self.notify('updated')
 
         else:
-            raise BaseException(interface.mode)
+            raise Exception(interface.mode)
         # If not finished, get the next header
         if next_height:
             if interface.mode == 'catch_up' and interface.tip > next_height + 50:
@@ -1054,7 +1055,7 @@ class Network(util.DaemonThread):
                     self.switch_to_interface(i.server)
                     break
         else:
-            raise BaseException('blockchain not found', index)
+            raise Exception('blockchain not found', index)
 
         if self.interface:
             server = self.interface.server
@@ -1073,7 +1074,7 @@ class Network(util.DaemonThread):
         except queue.Empty:
             raise util.TimeoutException(_('Server did not answer'))
         if r.get('error'):
-            raise BaseException(r.get('error'))
+            raise Exception(r.get('error'))
         return r.get('result')
 
     def broadcast(self, tx, timeout=30):
@@ -1089,7 +1090,7 @@ class Network(util.DaemonThread):
     def export_checkpoints(self, path):
         # run manually from the console to generate checkpoints
         cp = self.blockchain().get_checkpoints()
-        with open(path, 'w') as f:
+        with open(path, 'w', encoding='utf-8') as f:
             f.write(json.dumps(cp, indent=4))
 
     def max_checkpoint(self):

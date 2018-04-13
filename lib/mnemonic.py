@@ -91,7 +91,7 @@ def normalize_text(seed):
 
 def load_wordlist(filename):
     path = os.path.join(os.path.dirname(__file__), 'wordlist', filename)
-    with open(path, 'r') as f:
+    with open(path, 'r', encoding='utf-8') as f:
         s = f.read().strip()
     s = unicodedata.normalize('NFKD', s)
     lines = s.split('\n')
@@ -173,7 +173,8 @@ class Mnemonic(object):
             nonce += 1
             i = entropy + nonce
             seed = self.mnemonic_encode(i)
-            assert i == self.mnemonic_decode(seed)
+            if i != self.mnemonic_decode(seed):
+                raise Exception('Cannot extract same entropy from mnemonic!')
             if is_old_seed(seed):
                 continue
             if is_new_seed(seed, prefix):

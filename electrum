@@ -26,21 +26,6 @@
 import os
 import sys
 
-# from https://gist.github.com/tito/09c42fb4767721dc323d
-import threading
-try:
-    import jnius
-except:
-    jnius = None
-if jnius:
-    orig_thread_run = threading.Thread.run
-    def thread_check_run(*args, **kwargs):
-        try:
-            return orig_thread_run(*args, **kwargs)
-        finally:
-            jnius.detach()
-    threading.Thread.run = thread_check_run
-
 script_dir = os.path.dirname(os.path.realpath(__file__))
 is_bundle = getattr(sys, 'frozen', False)
 is_local = not is_bundle and os.path.exists(os.path.join(script_dir, "electrum.desktop"))
@@ -366,7 +351,7 @@ if __name__ == '__main__':
                 sys.argv[i] = sys.stdin.read()
                 break
             else:
-                raise BaseException('Cannot get argument from stdin')
+                raise Exception('Cannot get argument from stdin')
         elif arg == '?':
             sys.argv[i] = input("Enter argument:")
         elif arg == ':':
@@ -416,6 +401,8 @@ if __name__ == '__main__':
 
     if config.get('testnet'):
         constants.set_testnet()
+    elif config.get('regtest'):
+        constants.set_regtest()
 
     # run non-RPC commands separately
     if cmdname in ['create', 'restore']:

@@ -187,8 +187,8 @@ class Ledger_Client():
             try:
                 self.perform_hw1_preflight()
             except BTChipException as e:
-                if (e.sw == 0x6d00 or e.sw == 0x6f00):
-                    raise BaseException(_("Device not in Bitcoin mode")) from e
+                if (e.sw == 0x6d00 or e.sw == 0x6700):
+                    raise Exception(_("Device not in Bitcoin mode")) from e
                 raise e
             self.preflightDone = True
 
@@ -350,6 +350,9 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 self.give_error("No matching x_key for sign_transaction") # should never happen
 
             redeemScript = Transaction.get_preimage_script(txin)
+            if txin.get('prev_tx') is None:  # and not Transaction.is_segwit_input(txin):
+                # note: offline signing does not work atm even with segwit inputs for ledger
+                raise Exception(_('Offline signing with {} is not supported.').format(self.device))
             inputs.append([txin['prev_tx'].raw, txin['prevout_n'], redeemScript, txin['prevout_hash'], signingPos, txin.get('sequence', 0xffffffff - 1) ])
             inputsPaths.append(hwAddress)
             pubKeys.append(pubkeys)
@@ -377,7 +380,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
             for _type, address, amount in tx.outputs():
                 assert _type == TYPE_ADDRESS
                 info = tx.output_info.get(address)
-                if (info is not None) and (len(tx.outputs()) != 1):
+                if (info is not None) and len(tx.outputs()) > 1 \
+                        and info[0][0] == 1:  # "is on 'change' branch"
                     index, xpubs, m = info
                     changePath = self.get_derivation()[2:] + "/%d/%d"%index
                     changeAmount = amount
@@ -417,7 +421,12 @@ class Ledger_KeyStore(Hardware_KeyStore):
             if segwitTransaction:
                 self.get_client().startUntrustedTransaction(True, inputIndex,
                                                             chipInputs, redeemScripts[inputIndex])
-                outputData = self.get_client().finalizeInputFull(txOutput)
+                if changePath:
+                    # we don't set meaningful outputAddress, amount and fees
+                    # as we only care about the alternateEncoding==True branch
+                    outputData = self.get_client().finalizeInput(b'', 0, 0, changePath, bfh(rawTx))
+                else:
+                    outputData = self.get_client().finalizeInputFull(txOutput)
                 outputData['outputData'] = txOutput
                 transactionOutput = outputData['outputData']
                 if outputData['confirmationNeeded']:
@@ -440,7 +449,12 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 while inputIndex < len(inputs):
                     self.get_client().startUntrustedTransaction(firstTransaction, inputIndex,
                                                             chipInputs, redeemScripts[inputIndex])
-                    outputData = self.get_client().finalizeInputFull(txOutput)
+                    if changePath:
+                        # we don't set meaningful outputAddress, amount and fees
+                        # as we only care about the alternateEncoding==True branch
+                        outputData = self.get_client().finalizeInput(b'', 0, 0, changePath, bfh(rawTx))
+                    else:
+                        outputData = self.get_client().finalizeInputFull(txOutput)
                     outputData['outputData'] = txOutput
                     if firstTransaction:
                         transactionOutput = outputData['outputData']
@@ -522,8 +536,15 @@ class LedgerPlugin(HW_PluginBase):
 
     def get_btchip_device(self, device):
         ledger = False
-        if (device.product_key[0] == 0x2581 and device.product_key[1] == 0x3b7c) or (device.product_key[0] == 0x2581 and device.product_key[1] == 0x4b7c) or (device.product_key[0] == 0x2c97):
-           ledger = True
+        if device.product_key[0] == 0x2581 and device.product_key[1] == 0x3b7c:
+            ledger = True
+        if device.product_key[0] == 0x2581 and device.product_key[1] == 0x4b7c:
+            ledger = True
+        if device.product_key[0] == 0x2c97:
+            if device.interface_number == 0 or device.usage_page == 0xffa0:
+                ledger = True
+            else:
+                return None  # non-compatible interface of a nano s or blue
         dev = hid.device()
         dev.open_path(device.path)
         dev.set_nonblocking(True)
@@ -555,7 +576,6 @@ class LedgerPlugin(HW_PluginBase):
 
     def get_client(self, keystore, force_pair=True):
         # All client interaction should not be in the main GUI thread
-        #assert self.main_thread != threading.current_thread()
         devmgr = self.device_manager()
         handler = keystore.handler
         with devmgr.hid_lock:

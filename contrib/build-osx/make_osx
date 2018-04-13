@@ -1,29 +1,20 @@
-#!/bin/bash
-RED='\033[0;31m'
-BLUE='\033[0,34m'
-NC='\033[0m' # No Color
-function info {
-	printf "\r💬 ${BLUE}INFO:${NC} ${1}\n"
-}
-function fail {
-    printf "\r🗯 ${RED}ERROR:${NC} ${1}\n"
-    exit 1
-}
+#!/usr/bin/env bash
 
-build_dir=$(dirname "$0")
-test -n "$build_dir" -a -d "$build_dir" || exit
-cd $build_dir/../..
 
-export PYTHONHASHSEED=22
-VERSION=${VERSION:-`git describe --tags`}
-OS_VER=`sw_vers -productVersion | perl -nle 'print $1 if(/^(\d+\.\d+)/);'`
-
-# Paramterize
+# Parameterize
 PYTHON_VERSION=3.6.4
 BUILDDIR=/tmp/electrum-build
 PACKAGE='Electrum-Koto'
 GIT_REPO=https://github.com/wo01/electrum
 
+. $(dirname "$0")/base.sh
+
+src_dir=$(dirname "$0")
+cd $src_dir/../..
+
+export PYTHONHASHSEED=22
+VERSION=${VERSION:-`git describe --tags`}
+OS_VER=`sw_vers -productVersion | perl -nle 'print $1 if(/^(\d+\.\d+)/);'`
 
 info "Installing Python $PYTHON_VERSION"
 export PATH="~/.pyenv/bin:~/.pyenv/shims:~/Library/Python/3.6/bin:$PATH"
@@ -62,9 +53,9 @@ cp    $BUILDDIR/electrum-icons/icons_rc.py ./gui/qt/
 
 
 info "Downloading libusb..."
-curl https://homebrew.bintray.com/bottles/libusb-1.0.21.el_capitan.bottle.tar.gz | \
+curl https://homebrew.bintray.com/bottles/libusb-1.0.22.el_capitan.bottle.tar.gz | \
 tar xz --directory $BUILDDIR
-cp $BUILDDIR/libusb/1.0.21/lib/libusb-1.0.dylib contrib/build-osx
+cp $BUILDDIR/libusb/1.0.22/lib/libusb-1.0.dylib contrib/build-osx
 
 info "Installing requirements..."
 python3 -m pip install -Ir ./contrib/deterministic-build/requirements.txt --user && \

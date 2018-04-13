@@ -69,7 +69,7 @@ class BaseWizard(object):
             f = getattr(self, action)
             f(*args)
         else:
-            raise BaseException("unknown action", action)
+            raise Exception("unknown action", action)
 
     def can_go_back(self):
         return len(self.stack)>1
@@ -207,21 +207,28 @@ class BaseWizard(object):
             scanned_devices = devmgr.scan_devices()
         except BaseException as e:
             devmgr.print_error('error scanning devices: {}'.format(e))
+            debug_msg = '  {}:\n    {}'.format(_('Error scanning devices'), e)
         else:
+            debug_msg = ''
             for name, description, plugin in support:
                 try:
                     # FIXME: side-effect: unpaired_device_info sets client.handler
                     u = devmgr.unpaired_device_infos(None, plugin, devices=scanned_devices)
                 except BaseException as e:
                     devmgr.print_error('error getting device infos for {}: {}'.format(name, e))
+                    debug_msg += '  {}:\n    {}\n'.format(plugin.name, e)
                     continue
                 devices += list(map(lambda x: (name, x), u))
+        if not debug_msg:
+            debug_msg = '  {}'.format(_('No exceptions encountered.'))
         if not devices:
             msg = ''.join([
                 _('No hardware device detected.') + '\n',
                 _('To trigger a rescan, press \'Next\'.') + '\n\n',
                 _('If your device is not detected on Windows, go to "Settings", "Devices", "Connected devices", and do "Remove device". Then, plug your device again.') + ' ',
-                _('On Linux, you might have to add a new permission to your udev rules.'),
+                _('On Linux, you might have to add a new permission to your udev rules.') + '\n\n',
+                _('Debug message') + '\n',
+                debug_msg
             ])
             self.confirm_dialog(title=title, message=msg, run_next= lambda x: self.choose_hw_device(purpose))
             return
@@ -358,7 +365,7 @@ class BaseWizard(object):
                 self.load_2fa()
                 self.run('on_restore_seed', seed, is_ext)
         else:
-            raise BaseException('Unknown seed type', self.seed_type)
+            raise Exception('Unknown seed type', self.seed_type)
 
     def on_restore_bip39(self, seed, passphrase):
         f = lambda x: self.run('on_bip43', seed, passphrase, str(x))

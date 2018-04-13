@@ -87,10 +87,11 @@ class BitcoinTestnet:
     XPUB_HEADERS = {
         'standard':    0x043587cf,  # tpub
         'p2wpkh-p2sh': 0x044a5262,  # upub
-        'p2wsh-p2sh':  0x024285ef,  # Upub
+        'p2wsh-p2sh':  0x024289ef,  # Upub
         'p2wpkh':      0x045f1cf6,  # vpub
         'p2wsh':       0x02575483,  # Vpub
     }
+
 
 
 class KotoMainnet(BitcoinMainnet):
@@ -105,6 +106,13 @@ class KotoTestnet(BitcoinTestnet):
     SEGWIT_HRP = "toko"
     GENESIS = "bf84afbde20c2d213b68b231ddb585ab616ef7567226820f00d9b397d774d2f0"
 
+class KotoRegtest(KotoTestnet):
+    SEGWIT_HRP = "reg"
+    GENESIS = "dd905d5cda469020ddc364fdb530a4fb4559b9a117f78fdfbcc89d29d4909289"
+    DEFAULT_SERVERS = read_json('servers_regtest_koto.json', {})
+    CHECKPOINTS = []
+
+
 # don't import net directly, import the module instead (so that net is singleton)
 net = KotoMainnet
 
@@ -117,3 +125,8 @@ def set_mainnet():
 def set_testnet():
     global net
     net = KotoTestnet
+
+
+def set_regtest():
+    global net
+    net = Kotoegtest

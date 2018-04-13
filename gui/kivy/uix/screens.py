@@ -17,7 +17,7 @@ from kivy.lang import Builder
 from kivy.factory import Factory
 from kivy.utils import platform
 
-from electrum.util import profiler, parse_URI, format_time, InvalidPassword, NotEnoughFunds
+from electrum.util import profiler, parse_URI, format_time, InvalidPassword, NotEnoughFunds, Fiat
 from electrum import bitcoin
 from electrum.util import timestamp_to_datetime
 from electrum.paymentrequest import PR_UNPAID, PR_PAID, PR_UNKNOWN, PR_EXPIRED
@@ -131,7 +131,6 @@ class HistoryScreen(CScreen):
         status, status_str = self.app.wallet.get_tx_status(tx_hash, height, conf, timestamp)
         icon = "atlas://gui/kivy/theming/light/" + TX_ICONS[status]
         label = self.app.wallet.get_label(tx_hash) if tx_hash else _('Pruned transaction outputs')
-        date = timestamp_to_datetime(timestamp)
         ri = self.cards.get(tx_hash)
         if ri is None:
             ri = Factory.HistoryItem()
@@ -146,8 +145,11 @@ class HistoryScreen(CScreen):
             ri.is_mine = value < 0
             if value < 0: value = - value
             ri.amount = self.app.format_amount_and_units(value)
-            if self.app.fiat_unit and date:
-                ri.quote_text = self.app.fx.historical_value_str(value, date) + ' ' + self.app.fx.ccy
+            if self.app.fiat_unit:
+                fx = self.app.fx
+                fiat_value = value / Decimal(bitcoin.COIN) * self.app.wallet.price_at_timestamp(tx_hash, fx.timestamp_rate)
+                fiat_value = Fiat(fiat_value, fx.ccy)
+                ri.quote_text = str(fiat_value)
         return ri
 
     def update(self, see_all=False):
@@ -371,13 +373,20 @@ class ReceiveScreen(CScreen):
     def save_request(self):
         addr = self.screen.address
         if not addr:
-            return
+            return False
         amount = self.screen.amount
         message = self.screen.message
         amount = self.app.get_amount(amount) if amount else 0
         req = self.app.wallet.make_payment_request(addr, amount, message, None)
-        self.app.wallet.add_payment_request(req, self.app.electrum_config)
-        self.app.update_tab('requests')
+        try:
+            self.app.wallet.add_payment_request(req, self.app.electrum_config)
+            added_request = True
+        except Exception as e:
+            self.app.show_error(_('Error adding payment request') + ':\n' + str(e))
+            added_request = False
+        finally:
+            self.app.update_tab('requests')
+        return added_request
 
     def on_amount_or_message(self):
         Clock.schedule_once(lambda dt: self.update_qr())
@@ -388,8 +397,8 @@ class ReceiveScreen(CScreen):
             self.app.show_info(_('Please use the existing requests first.'))
 
     def do_save(self):
-        self.save_request()
-        self.app.show_info(_('Request was saved.'))
+        if self.save_request():
+            self.app.show_info(_('Request was saved.'))
 
 
 class TabbedCarousel(Factory.TabbedPanel):

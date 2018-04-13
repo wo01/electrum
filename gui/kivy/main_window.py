@@ -249,6 +249,7 @@ class ElectrumWindow(App):
         self.tabs = None
         self.is_exit = False
         self.wallet = None
+        self.pause_time = 0
 
         App.__init__(self)#, **kwargs)
 
@@ -404,12 +405,15 @@ class ElectrumWindow(App):
         intent = Intent(PythonActivity.mActivity, SimpleScannerActivity)
 
         def on_qr_result(requestCode, resultCode, intent):
-            if resultCode == -1:  # RESULT_OK:
-                #  this doesn't work due to some bug in jnius:
-                # contents = intent.getStringExtra("text")
-                String = autoclass("java.lang.String")
-                contents = intent.getStringExtra(String("text"))
-                on_complete(contents)
+            try:
+                if resultCode == -1:  # RESULT_OK:
+                    #  this doesn't work due to some bug in jnius:
+                    # contents = intent.getStringExtra("text")
+                    String = autoclass("java.lang.String")
+                    contents = intent.getStringExtra(String("text"))
+                    on_complete(contents)
+            finally:
+                activity.unbind(on_activity_result=on_qr_result)
         activity.bind(on_activity_result=on_qr_result)
         PythonActivity.mActivity.startActivityForResult(intent, 0)
 
@@ -450,7 +454,6 @@ class ElectrumWindow(App):
         #win.softinput_mode = 'below_target'
         self.on_size(win, win.size)
         self.init_ui()
-        self.load_wallet_by_name(self.electrum_config.get_wallet_path())
         # init plugins
         run_hook('init_kivy', self)
         # fiat currency
@@ -472,6 +475,8 @@ class ElectrumWindow(App):
             self.network.register_callback(self.on_fee, ['fee'])
             self.network.register_callback(self.on_quotes, ['on_quotes'])
             self.network.register_callback(self.on_history, ['on_history'])
+        # load wallet
+        self.load_wallet_by_name(self.electrum_config.get_wallet_path())
         # URI passed in config
         uri = self.electrum_config.get('url')
         if uri:
@@ -489,17 +494,18 @@ class ElectrumWindow(App):
             wallet.start_threads(self.daemon.network)
             self.daemon.add_wallet(wallet)
             self.load_wallet(wallet)
-        self.on_resume()
 
     def load_wallet_by_name(self, path):
         if not path:
             return
+        if self.wallet and self.wallet.storage.path == path:
+            return
         wallet = self.daemon.load_wallet(path, None)
         if wallet:
-            if wallet != self.wallet:
-                self.stop_wallet()
+            if wallet.has_password():
+                self.password_dialog(wallet, _('Enter PIN code'), lambda x: self.load_wallet(wallet), self.stop)
+            else:
                 self.load_wallet(wallet)
-                self.on_resume()
         else:
             Logger.debug('Electrum: Wallet not found. Launching install wizard')
             storage = WalletStorage(path)
@@ -509,6 +515,7 @@ class ElectrumWindow(App):
             wizard.run(action)
 
     def on_stop(self):
+        Logger.info('on_stop')
         self.stop_wallet()
 
     def stop_wallet(self):
@@ -622,6 +629,8 @@ class ElectrumWindow(App):
 
     @profiler
     def load_wallet(self, wallet):
+        if self.wallet:
+            self.stop_wallet()
         self.wallet = wallet
         self.update_wallet()
         # Once GUI has been initialized check if we want to announce something
@@ -658,6 +667,8 @@ class ElectrumWindow(App):
 
     def get_max_amount(self):
         inputs = self.wallet.get_spendable_coins(None, self.electrum_config)
+        if not inputs:
+            return ''
         addr = str(self.send_screen.screen.address) or self.wallet.dummy_address()
         outputs = [(TYPE_ADDRESS, addr, '!')]
         tx = self.wallet.make_unsigned_transaction(inputs, outputs, self.electrum_config)
@@ -689,12 +700,16 @@ class ElectrumWindow(App):
             Logger.Error('Notification: needs plyer; `sudo pip install plyer`')
 
     def on_pause(self):
+        self.pause_time = time.time()
         # pause nfc
         if self.nfcscanner:
             self.nfcscanner.nfc_disable()
         return True
 
     def on_resume(self):
+        now = time.time()
+        if self.wallet.has_password and now - self.pause_time > 60:
+            self.password_dialog(self.wallet, _('Enter PIN'), None, self.stop)
         if self.nfcscanner:
             self.nfcscanner.nfc_enable()
 
@@ -880,7 +895,8 @@ class ElectrumWindow(App):
 
     def protected(self, msg, f, args):
         if self.wallet.has_password():
-            self.password_dialog(msg, f, args)
+            on_success = lambda pw: f(*(args + (pw,)))
+            self.password_dialog(self.wallet, msg, on_success, lambda: None)
         else:
             f(*(args + (None,)))
 
@@ -892,7 +908,7 @@ class ElectrumWindow(App):
 
     def _delete_wallet(self, b):
         if b:
-            basename = os.path.basename(self.wallet.storage.path)
+            basename = self.wallet.basename()
             self.protected(_("Enter your PIN code to confirm deletion of {}").format(basename), self.__delete_wallet, ())
 
     def __delete_wallet(self, pw):
@@ -930,40 +946,23 @@ class ElectrumWindow(App):
         if passphrase:
             label.text += '\n\n' + _('Passphrase') + ': ' + passphrase
 
-    def change_password(self, cb):
-        if self.wallet.has_password():
-            self.protected(_("Changing PIN code.") + '\n' + _("Enter your current PIN:"), self._change_password, (cb,))
-        else:
-            self._change_password(cb, None)
-
-    def _change_password(self, cb, old_password):
-        if self.wallet.has_password():
-            if old_password is None:
-                return
-            try:
-                self.wallet.check_password(old_password)
-            except InvalidPassword:
-                self.show_error("Invalid PIN")
-                return
-        self.password_dialog(_('Enter new PIN'), self._change_password2, (cb, old_password,))
-
-    def _change_password2(self, cb, old_password, new_password):
-        self.password_dialog(_('Confirm new PIN'), self._change_password3, (cb, old_password, new_password))
-
-    def _change_password3(self, cb, old_password, new_password, confirmed_password):
-        if new_password == confirmed_password:
-            self.wallet.update_password(old_password, new_password)
-            cb()
-        else:
-            self.show_error("PIN numbers do not match")
-
-    def password_dialog(self, msg, f, args):
+    def password_dialog(self, wallet, msg, on_success, on_failure):
         from .uix.dialogs.password_dialog import PasswordDialog
-        def callback(pw):
-            Clock.schedule_once(lambda x: f(*(args + (pw,))), 0.1)
         if self._password_dialog is None:
             self._password_dialog = PasswordDialog()
-        self._password_dialog.init(msg, callback)
+        self._password_dialog.init(self, wallet, msg, on_success, on_failure)
+        self._password_dialog.open()
+
+    def change_password(self, cb):
+        from .uix.dialogs.password_dialog import PasswordDialog
+        if self._password_dialog is None:
+            self._password_dialog = PasswordDialog()
+        message = _("Changing PIN code.") + '\n' + _("Enter your current PIN:")
+        def on_success(old_password, new_password):
+            self.wallet.update_password(old_password, new_password)
+            self.show_info(_("Your PIN code was updated"))
+        on_failure = lambda: self.show_error(_("PIN codes do not match"))
+        self._password_dialog.init(self, self.wallet, message, on_success, on_failure, is_change=1)
         self._password_dialog.open()
 
     def export_private_keys(self, pk_label, addr):

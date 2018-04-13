@@ -32,7 +32,7 @@ import json
 import ecdsa
 import pyaes
 
-from .util import bfh, bh2u, to_string
+from .util import bfh, bh2u, to_string, BitcoinException
 from . import version
 from .util import print_error, InvalidPassword, assert_bytes, to_bytes, inv_dict
 from . import segwit_addr
@@ -143,7 +143,8 @@ def rev_hex(s):
 
 
 def int_to_hex(i, length=1):
-    assert isinstance(i, int)
+    if not isinstance(i, int):
+        raise TypeError('{} instead of int'.format(i))
     if i < 0:
         # two's complement
         i = pow(256, length) + i
@@ -264,7 +265,7 @@ def hash_160(public_key):
         return md.digest()
 
 
-def hash160_to_b58_address(h160, addrtype, witness_program_version=1):
+def hash160_to_b58_address(h160, addrtype):
     s = bytes(addrtype)
     s += h160
     return base_encode(s+Hash(s)[0:4], base=58)
@@ -276,17 +277,23 @@ def b58_address_to_hash160(addr):
     return _bytes[0:2], _bytes[2:22]
 
 
-def hash160_to_p2pkh(h160):
-    return hash160_to_b58_address(h160, constants.net.ADDRTYPE_P2PKH)
+def hash160_to_p2pkh(h160, *, net=None):
+    if net is None:
+        net = constants.net
+    return hash160_to_b58_address(h160, net.ADDRTYPE_P2PKH)
 
-def hash160_to_p2sh(h160):
-    return hash160_to_b58_address(h160, constants.net.ADDRTYPE_P2SH)
+def hash160_to_p2sh(h160, *, net=None):
+    if net is None:
+        net = constants.net
+    return hash160_to_b58_address(h160, net.ADDRTYPE_P2SH)
 
 def public_key_to_p2pkh(public_key):
     return hash160_to_p2pkh(hash_160(public_key))
 
-def hash_to_segwit_addr(h, witver):
-    return segwit_addr.encode(constants.net.SEGWIT_HRP, witver, h)
+def hash_to_segwit_addr(h, witver, *, net=None):
+    if net is None:
+        net = constants.net
+    return segwit_addr.encode(net.SEGWIT_HRP, witver, h)
 
 def public_key_to_p2wpkh(public_key):
     return hash_to_segwit_addr(hash_160(public_key), witver=0)
@@ -325,31 +332,34 @@ def redeem_script_to_address(txin_type, redeem_script):
         raise NotImplementedError(txin_type)
 
 
-def script_to_address(script):
+def script_to_address(script, *, net=None):
     from .transaction import get_address_from_output_script
-    t, addr = get_address_from_output_script(bfh(script))
+    t, addr = get_address_from_output_script(bfh(script), net=net)
     assert t == TYPE_ADDRESS
     return addr
 
-def address_to_script(addr):
-    witver, witprog = segwit_addr.decode(constants.net.SEGWIT_HRP, addr)
+def address_to_script(addr, *, net=None):
+    if net is None:
+        net = constants.net
+    witver, witprog = segwit_addr.decode(net.SEGWIT_HRP, addr)
     if witprog is not None:
-        assert (0 <= witver <= 16)
+        if not (0 <= witver <= 16):
+            raise BitcoinException('impossible witness version: {}'.format(witver))
         OP_n = witver + 0x50 if witver > 0 else 0
         script = bh2u(bytes([OP_n]))
         script += push_script(bh2u(bytes(witprog)))
         return script
     addrtype, hash_160 = b58_address_to_hash160(addr)
-    if addrtype == bytes(constants.net.ADDRTYPE_P2PKH):
+    if addrtype == bytes(net.ADDRTYPE_P2PKH):
         script = '76a9'                                      # op_dup, op_hash_160
         script += push_script(bh2u(hash_160))
         script += '88ac'                                     # op_equalverify, op_checksig
-    elif addrtype == bytes(constants.net.ADDRTYPE_P2SH):
+    elif addrtype == bytes(net.ADDRTYPE_P2SH):
         script = 'a9'                                        # op_hash_160
         script += push_script(bh2u(hash_160))
         script += '87'                                       # op_equal
     else:
-        raise BaseException('unknown address type')
+        raise BitcoinException('unknown address type: {}'.format(addrtype))
     return script
 
 def address_to_scripthash(addr):
@@ -375,7 +385,8 @@ assert len(__b43chars) == 43
 def base_encode(v, base):
     """ encode v, which is a string of bytes, to base58."""
     assert_bytes(v)
-    assert base in (58, 43)
+    if base not in (58, 43):
+        raise ValueError('not supported base: {}'.format(base))
     chars = __b58chars
     if base == 43:
         chars = __b43chars
@@ -405,7 +416,8 @@ def base_decode(v, length, base):
     """ decode v into a string of len bytes."""
     # assert_bytes(v)
     v = to_bytes(v, 'ascii')
-    assert base in (58, 43)
+    if base not in (58, 43):
+        raise ValueError('not supported base: {}'.format(base))
     chars = __b58chars
     if base == 43:
         chars = __b43chars
@@ -457,6 +469,7 @@ def DecodeBase58Check(psz):
 
 # backwards compat
 # extended WIF for segwit (used in 3.0.x; but still used internally)
+# the keys in this dict should be a superset of what Imported Wallets can import
 SCRIPT_TYPES = {
     'p2pkh':0,
     'p2wpkh':1,
@@ -488,20 +501,25 @@ def deserialize_privkey(key):
     txin_type = None
     if ':' in key:
         txin_type, key = key.split(sep=':', maxsplit=1)
-        assert txin_type in SCRIPT_TYPES
+        if txin_type not in SCRIPT_TYPES:
+            raise BitcoinException('unknown script type: {}'.format(txin_type))
     try:
         vch = DecodeBase58Check(key)
     except BaseException:
         neutered_privkey = str(key)[:3] + '..' + str(key)[-2:]
-        raise BaseException("cannot deserialize", neutered_privkey)
+        raise BitcoinException("cannot deserialize privkey {}"
+                               .format(neutered_privkey))
 
     if txin_type is None:
         # keys exported in version 3.0.x encoded script type in first byte
         txin_type = inv_dict(SCRIPT_TYPES)[vch[0] - constants.net.WIF_PREFIX]
     else:
-        assert vch[0] == constants.net.WIF_PREFIX
+        # all other keys must have a fixed first byte
+        if vch[0] != constants.net.WIF_PREFIX:
+            raise BitcoinException('invalid prefix ({}) for WIF key'.format(vch[0]))
 
-    assert len(vch) in [33, 34]
+    if len(vch) not in [33, 34]:
+        raise BitcoinException('invalid vch len for WIF key: {}'.format(len(vch)))
     compressed = len(vch) == 34
     return txin_type, vch[1:33], compressed
 
@@ -888,7 +906,8 @@ def deserialize_xkey(xkey, prv, *, net=None):
         net = constants.net
     xkey = DecodeBase58Check(xkey)
     if len(xkey) != 78:
-        raise BaseException('Invalid length')
+        raise BitcoinException('Invalid length for extended key: {}'
+                               .format(len(xkey)))
     depth = xkey[4]
     fingerprint = xkey[5:9]
     child_number = xkey[9:13]
@@ -896,7 +915,8 @@ def deserialize_xkey(xkey, prv, *, net=None):
     header = int('0x' + bh2u(xkey[0:4]), 16)
     headers = net.XPRV_HEADERS if prv else net.XPUB_HEADERS
     if header not in headers.values():
-        raise BaseException('Invalid xpub format', hex(header))
+        raise BitcoinException('Invalid extended key format: {}'
+                               .format(hex(header)))
     xtype = list(headers.keys())[list(headers.values()).index(header)]
     n = 33 if prv else 32
     K_or_k = xkey[13+n:]
@@ -951,7 +971,8 @@ def xpub_from_pubkey(xtype, cK):
 
 
 def bip32_derivation(s):
-    assert s.startswith('m/')
+    if not s.startswith('m/'):
+        raise ValueError('invalid bip32 derivation path: {}'.format(s))
     s = s[2:]
     for n in s.split('/'):
         if n == '': continue
@@ -966,7 +987,9 @@ def is_bip32_derivation(x):
         return False
 
 def bip32_private_derivation(xprv, branch, sequence):
-    assert sequence.startswith(branch)
+    if not sequence.startswith(branch):
+        raise ValueError('incompatible branch ({}) and sequence ({})'
+                         .format(branch, sequence))
     if branch == sequence:
         return xprv, xpub_from_xprv(xprv)
     xtype, depth, fingerprint, child_number, c, k = deserialize_xprv(xprv)
@@ -988,7 +1011,9 @@ def bip32_private_derivation(xprv, branch, sequence):
 
 def bip32_public_derivation(xpub, branch, sequence):
     xtype, depth, fingerprint, child_number, c, cK = deserialize_xpub(xpub)
-    assert sequence.startswith(branch)
+    if not sequence.startswith(branch):
+        raise ValueError('incompatible branch ({}) and sequence ({})'
+                         .format(branch, sequence))
     sequence = sequence[len(branch):]
     for n in sequence.split('/'):
         if n == '': continue

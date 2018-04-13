@@ -45,6 +45,10 @@ def serialize_header(res):
     return s
 
 def deserialize_header(s, height):
+    if not s:
+        raise Exception('Invalid header: {}'.format(s))
+    if len(s) != 80:
+        raise Exception('Invalid header length: {}'.format(len(s)))
     hex_to_int = lambda s: int('0x' + bh2u(s[::-1]), 16)
     h = {}
     h['version'] = hex_to_int(s[0:4])
@@ -159,19 +163,16 @@ class Blockchain(util.PrintError):
             return
         _powhash = rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)))))
         if prev_hash != header.get('prev_block_hash'):
-            self.print_error("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
-            raise BaseException("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
+            raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
         if height % 2016 != 0 and height // 2016 < len(self.checkpoints):
             return
         if constants.net.TESTNET:
             return
         bits = self.target_to_bits(target)
         if bits != header.get('bits'):
-            self.print_error("bits mismatch: %s vs %s" % (hex(bits), hex(header.get('bits'))))
-            raise BaseException("bits mismatch: %s vs %s" % (bits, header.get('bits')))
-        if int('0x' + _powhash, 16) > target:
-            self.print_error("insufficient proof of work: \n%s vs target\n %s" % (_powhash, hex(target)))
-            raise BaseException("insufficient proof of work: %s vs target %s" % (int('0x' + _powhash, 16), target))
+            raise Exception("bits mismatch: %s vs %s" % (bits, header.get('bits')))
+        if int('0x' + _hash, 16) > target:
+            raise Exception("insufficient proof of work: %s vs target %s" % (int('0x' + _hash, 16), target))
 
     def verify_chunk(self, index, data):
         num = len(data) // 80
@@ -269,6 +270,12 @@ class Blockchain(util.PrintError):
             with open(name, 'rb') as f:
                 f.seek(delta * 80)
                 h = f.read(80)
+                if len(h) < 80:
+                    raise Exception('Expected to read a full header. This was only {} bytes'.format(len(h)))
+        elif not os.path.exists(util.get_headers_dir(self.config)):
+            raise Exception('Electrum datadir does not exist. Was it deleted while running?')
+        else:
+            raise Exception('Cannot find headers file but datadir is there. Should be at {}'.format(name))
         if h == bytes([0])*80:
             return None
         return deserialize_header(h, height)
@@ -375,10 +382,10 @@ class Blockchain(util.PrintError):
     def bits_to_target(self, bits):
         bitsN = (bits >> 24) & 0xff
         if not (bitsN >= 0x03 and bitsN <= 0x1f):
-            raise BaseException("First part of bits should be in [0x03, 0x1f]")
+            raise Exception("First part of bits should be in [0x03, 0x1f]")
         bitsBase = bits & 0xffffff
         if not (bitsBase >= 0x8000 and bitsBase <= 0x7fffff):
-            raise BaseException("Second part of bits should be in [0x8000, 0x7fffff]")
+            raise Exception("Second part of bits should be in [0x8000, 0x7fffff]")
         return bitsBase << (8 * (bitsN-3))
 
     def target_to_bits(self, target):
@@ -392,6 +399,8 @@ class Blockchain(util.PrintError):
         return bitsN << 24 | bitsBase
 
     def can_connect(self, header, check_height=True):
+        if header is None:
+            return False
         height = header['block_height']
         if check_height and self.height() != height - 1:
             #self.print_error("cannot connect at height", height)

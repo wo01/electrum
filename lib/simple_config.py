@@ -107,13 +107,16 @@ class SimpleConfig(PrintError):
             # Make directory if it does not yet exist.
             if not os.path.exists(path):
                 if os.path.islink(path):
-                    raise BaseException('Dangling link: ' + path)
+                    raise Exception('Dangling link: ' + path)
                 os.mkdir(path)
                 os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
         make_dir(path)
         if self.get('testnet'):
             path = os.path.join(path, 'testnet')
+            make_dir(path)
+        elif self.get('regtest'):
+            path = os.path.join(path, 'regtest')
             make_dir(path)
 
         self.print_error("electrum directory", path)
@@ -190,7 +193,7 @@ class SimpleConfig(PrintError):
         if cur_version > max_version:
             return False
         elif cur_version < min_version:
-            raise BaseException(
+            raise Exception(
                 ('config upgrade: unexpected version %d (should be %d-%d)'
                  % (cur_version, min_version, max_version)))
         else:
@@ -211,9 +214,14 @@ class SimpleConfig(PrintError):
             return
         path = os.path.join(self.path, "config")
         s = json.dumps(self.user_config, indent=4, sort_keys=True)
-        with open(path, "w") as f:
-            f.write(s)
-        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+        try:
+            with open(path, "w", encoding='utf-8') as f:
+                f.write(s)
+            os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+        except FileNotFoundError:
+            # datadir probably deleted while running...
+            if os.path.exists(self.path):  # or maybe not?
+                raise
 
     def get_wallet_path(self):
         """Set the path of the wallet."""
@@ -228,10 +236,14 @@ class SimpleConfig(PrintError):
             return path
 
         # default path
+        if not os.path.exists(self.path):
+            raise FileNotFoundError(
+                _('Electrum datadir does not exist. Was it deleted while running?') + '\n' +
+                _('Should be at {}').format(self.path))
         dirpath = os.path.join(self.path, "wallets")
         if not os.path.exists(dirpath):
             if os.path.islink(dirpath):
-                raise BaseException('Dangling link: ' + dirpath)
+                raise Exception('Dangling link: ' + dirpath)
             os.mkdir(dirpath)
             os.chmod(dirpath, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
@@ -395,7 +407,7 @@ class SimpleConfig(PrintError):
                 maxp = len(FEE_ETA_TARGETS)  # not (-1) to have "next block"
                 fee_rate = self.eta_to_fee(pos)
         else:
-            fee_rate = self.fee_per_kb()
+            fee_rate = self.fee_per_kb(dyn=False)
             pos = self.static_fee_index(fee_rate)
             maxp = 9
         return maxp, pos, fee_rate
@@ -404,6 +416,8 @@ class SimpleConfig(PrintError):
         return FEERATE_STATIC_VALUES[i]
 
     def static_fee_index(self, value):
+        if value is None:
+            raise TypeError('static fee cannot be None')
         dist = list(map(lambda x: abs(x - value), FEERATE_STATIC_VALUES))
         return min(range(len(dist)), key=dist.__getitem__)
 
@@ -425,12 +439,16 @@ class SimpleConfig(PrintError):
     def use_mempool_fees(self):
         return bool(self.get('mempool_fees', False))
 
-    def fee_per_kb(self):
+    def fee_per_kb(self, dyn=None, mempool=None):
         """Returns sat/kvB fee to pay for a txn.
         Note: might return None.
         """
-        if self.is_dynfee():
-            if self.use_mempool_fees():
+        if dyn is None:
+            dyn = self.is_dynfee()
+        if mempool is None:
+            mempool = self.use_mempool_fees()
+        if dyn:
+            if mempool:
                 fee_rate = self.depth_to_fee(self.get_depth_level())
             else:
                 fee_rate = self.eta_to_fee(self.get_fee_level())
@@ -489,7 +507,7 @@ def read_user_config(path):
     if not os.path.exists(config_path):
         return {}
     try:
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding='utf-8') as f:
             data = f.read()
         result = json.loads(data)
     except:
