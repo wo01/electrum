@@ -109,7 +109,7 @@ class KotoTestnet(BitcoinTestnet):
 class KotoRegtest(KotoTestnet):
     SEGWIT_HRP = "reg"
     GENESIS = "dd905d5cda469020ddc364fdb530a4fb4559b9a117f78fdfbcc89d29d4909289"
-    DEFAULT_SERVERS = read_json('servers_regtest_koto.json', {})
+    DEFAULT_SERVERS = read_json('servers_regtest.json', {})
     CHECKPOINTS = []
 
 

@@ -74,7 +74,7 @@ setup(
         'electrum': [
             'servers_koto.json',
             'servers_testnet_koto.json',
-            'servers_regtest_koto.json',
+            'servers_regtest.json',
             'currencies.json',
             'checkpoints_koto.json',
             'checkpoints_testnet_koto.json',
