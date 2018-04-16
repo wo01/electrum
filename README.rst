@@ -49,7 +49,7 @@ Version".
 Development version
 ===================
 
-Check out the code from Github::
+Check out the code from GitHub::
 
     git clone git://github.com/wo01/electrum-koto.git
     cd electrum-koto
