@@ -13,7 +13,7 @@ src_dir=$(dirname "$0")
 cd $src_dir/../..
 
 export PYTHONHASHSEED=22
-VERSION=${VERSION:-`git describe --tags --drity`}
+VERSION=${VERSION:-`git describe --tags --dirty`}
 OS_VER=`sw_vers -productVersion | perl -nle 'print $1 if(/^(\d+\.\d+)/);'`
 
 info "Installing Python $PYTHON_VERSION"
