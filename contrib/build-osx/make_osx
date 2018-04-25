@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-
 # Parameterize
 PYTHON_VERSION=3.6.4
 BUILDDIR=/tmp/electrum-build

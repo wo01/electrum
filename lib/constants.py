@@ -93,7 +93,6 @@ class BitcoinTestnet:
     }
 
 
-
 class KotoMainnet(BitcoinMainnet):
     ADDRTYPE_P2PKH = [0x18, 0x36]
     ADDRTYPE_P2SH = [0x18, 0x3b]
