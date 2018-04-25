@@ -164,7 +164,8 @@ class Blockchain(util.PrintError):
         _powhash = rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)))))
         if prev_hash != header.get('prev_block_hash'):
             raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
-        if height % 2016 != 0 and height // 2016 < len(self.checkpoints):
+        # nAverageBlocks + nMedianTimeSpan = 28 Because checkpoint don't have preblock data.
+        if height % 2016 != 0 and height // 2016 < len(self.checkpoints) or height >= len(self.checkpoints)*2016 and height <= len(self.checkpoints)*2016 + 28:
             return
         if constants.net.TESTNET:
             return
@@ -333,6 +334,10 @@ class Blockchain(util.PrintError):
         nTargetTimespan = nAverageBlocks * 60 # 60 seconds
         nMinActualTimespan =  (nTargetTimespan * (100 - nPowMaxAdjustUp)) // 100
         nMaxActualTimespan = (nTargetTimespan * (100 + nPowMaxAdjustDown)) // 100
+
+        # nAverageBlocks + nMedianTimeSpan = 28 Because checkpoint don't have preblock data.
+        if height < len(self.checkpoints)*2016 + 28:
+            return 0
 
         if last is None or height-1 <= nAverageBlocks:
             return MAX_TARGET
