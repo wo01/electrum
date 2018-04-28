@@ -422,7 +422,7 @@ class Commands:
         if locktime != None: 
             tx.locktime = locktime
         if rbf is None:
-            rbf = self.config.get('use_rbf', True)
+            rbf = self.config.get('use_rbf', False)
         if rbf:
             tx.set_rbf(True)
         if not unsigned:

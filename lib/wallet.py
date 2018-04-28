@@ -154,7 +154,7 @@ def sweep(privkeys, network, config, recipient, fee=None, imax=100):
 
     tx = Transaction.from_io(inputs, outputs, locktime=locktime)
     tx.BIP_LI01_sort()
-    tx.set_rbf(True)
+    tx.set_rbf(False)
     tx.sign(keypairs)
     return tx
 

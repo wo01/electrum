@@ -343,7 +343,7 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
                            lambda bound_c=c: self.editItem(item, bound_c))
         menu.addAction(_("Details"), lambda: self.parent.show_transaction(tx))
         if is_unconfirmed and tx:
-            rbf = is_mine and not tx.is_final()
+            rbf = False # is_mine and not tx.is_final()
             if rbf:
                 menu.addAction(_("Increase fee"), lambda: self.parent.bump_fee_dialog(tx))
             else:
