@@ -44,8 +44,8 @@ from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS
 from electrum import constants
 from electrum.plugins import run_hook
 from electrum.i18n import _
-from electrum.util import (format_time, format_satoshis, PrintError,
-                           format_satoshis_plain, NotEnoughFunds,
+from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
+                           format_satoshis_plain, NotEnoughFunds, PrintError,
                            UserCancelled, NoDynamicFeeEstimates, profiler,
                            export_meta, import_meta, bh2u, bfh, InvalidPassword)
 from electrum import Transaction
@@ -639,7 +639,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.require_fee_update = False
 
     def format_amount(self, x, is_diff=False, whitespaces=False):
-        return format_satoshis(x, is_diff, self.num_zeros, self.decimal_point, whitespaces)
+        return format_satoshis(x, self.num_zeros, self.decimal_point, is_diff=is_diff, whitespaces=whitespaces)
 
     def format_amount_and_units(self, amount):
         text = self.format_amount(amount) + ' '+ self.base_unit()
@@ -649,7 +649,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         return text
 
     def format_fee_rate(self, fee_rate):
-        return format_satoshis(fee_rate/1000, False, self.num_zeros, 0, False)  + _(' sat/byte')
+        return format_fee_satoshis(fee_rate/1000, self.num_zeros) + ' sat/byte'
 
     def get_decimal_point(self):
         return self.decimal_point
@@ -725,9 +725,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                 c, u, x = self.wallet.get_balance()
                 text =  _("Balance" ) + ": %s "%(self.format_amount_and_units(c))
                 if u:
-                    text +=  " [%s unconfirmed]"%(self.format_amount(u, True).strip())
+                    text +=  " [%s unconfirmed]"%(self.format_amount(u, is_diff=True).strip())
                 if x:
-                    text +=  " [%s unmatured]"%(self.format_amount(x, True).strip())
+                    text +=  " [%s unmatured]"%(self.format_amount(x, is_diff=True).strip())
 
                 # append fiat balance and price
                 if self.fx.is_enabled():
@@ -2606,9 +2606,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         lang_combo = QComboBox()
         from electrum.i18n import languages
         lang_combo.addItems(list(languages.values()))
+        lang_keys = list(languages.keys())
+        lang_cur_setting = self.config.get("language", '')
         try:
-            index = languages.keys().index(self.config.get("language",''))
-        except Exception:
+            index = lang_keys.index(lang_cur_setting)
+        except ValueError:  # not in list
             index = 0
         lang_combo.setCurrentIndex(index)
         if not self.config.is_modifiable('language'):
@@ -3136,6 +3138,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
     def bump_fee_dialog(self, tx):
         is_relevant, is_mine, v, fee = self.wallet.get_wallet_delta(tx)
+        if fee is None:
+            self.show_error(_("Can't bump fee: unknown fee for original transaction."))
+            return
         tx_label = self.wallet.get_label(tx.txid())
         tx_size = tx.estimated_size()
         d = WindowModalDialog(self, _('Bump Fee'))
@@ -3187,5 +3192,3 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.need_update.set()
             self.msg_box(QPixmap(":icons/offline_tx.png"), None, _('Success'), _("Transaction added to wallet history"))
             return True
-
-

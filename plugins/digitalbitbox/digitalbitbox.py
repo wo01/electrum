@@ -5,8 +5,9 @@
 
 try:
     import electrum
-    from electrum.bitcoin import TYPE_ADDRESS, push_script, var_int, msg_magic, Hash, verify_message, pubkey_from_signature, point_to_ser, public_key_to_p2pkh, EncodeAES, DecodeAES, MyVerifyingKey
+    from electrum.bitcoin import TYPE_ADDRESS, push_script, var_int, msg_magic, Hash, verify_message, pubkey_from_signature, point_to_ser, public_key_to_p2pkh, EncodeAES, DecodeAES, MyVerifyingKey, is_address
     from electrum.bitcoin import serialize_xpub, deserialize_xpub
+    from electrum.wallet import Standard_Wallet
     from electrum import constants
     from electrum.transaction import Transaction
     from electrum.i18n import _
@@ -643,7 +644,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     sig_r = int(signed['sig'][:64], 16)
                     sig_s = int(signed['sig'][64:], 16)
                     sig = sigencode_der(sig_r, sig_s, generator_secp256k1.order())
-                    txin['signatures'][ii] = to_hexstr(sig) + '01'
+                    sig = to_hexstr(sig) + '01'
+                    Transaction.add_signature_to_txin(txin, ii, sig)
                     tx._inputs[i] = txin
         except UserCancelled:
             raise
@@ -737,7 +739,20 @@ class DigitalBitboxPlugin(HW_PluginBase):
             client.check_device_dialog()
         return client
 
-    def show_address(self, wallet, keystore, address):
+    def show_address(self, wallet, address, keystore=None):
+        if keystore is None:
+            keystore = wallet.get_keystore()
+        if not self.show_address_helper(wallet, address, keystore):
+            return
+        if type(wallet) is not Standard_Wallet:
+            keystore.handler.show_error(_('This function is only available for standard wallets when using {}.').format(self.device))
+            return
+        if not self.is_mobile_paired():
+            keystore.handler.show_error(_('This function is only available after pairing your {} with a mobile device.').format(self.device))
+            return
+        if not keystore.is_p2pkh():
+            keystore.handler.show_error(_('This function is only available for p2pkh keystores when using {}.').format(self.device))
+            return
         change, index = wallet.get_address_index(address)
         keypath = '%s/%d/%d' % (keystore.derivation, change, index)
         xpub = self.get_client(keystore)._get_xpub(keypath)

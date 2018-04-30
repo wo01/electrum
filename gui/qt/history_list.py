@@ -174,11 +174,13 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
         grid = QGridLayout()
         grid.addWidget(QLabel(_("Start")), 0, 0)
         grid.addWidget(QLabel(self.format_date(start_date)), 0, 1)
-        grid.addWidget(QLabel(_("End")), 1, 0)
-        grid.addWidget(QLabel(self.format_date(end_date)), 1, 1)
-        grid.addWidget(QLabel(_("Initial balance")), 2, 0)
-        grid.addWidget(QLabel(format_amount(h['start_balance'])), 2, 1)
-        grid.addWidget(QLabel(str(h.get('start_fiat_balance'))), 2, 2)
+        grid.addWidget(QLabel(str(h['start_fiat_value']) + '/BTC'), 0, 2)
+        grid.addWidget(QLabel(_("Initial balance")), 1, 0)
+        grid.addWidget(QLabel(format_amount(h['start_balance'])), 1, 1)
+        grid.addWidget(QLabel(str(h.get('start_fiat_balance'))), 1, 2)
+        grid.addWidget(QLabel(_("End")), 2, 0)
+        grid.addWidget(QLabel(self.format_date(end_date)), 2, 1)
+        grid.addWidget(QLabel(str(h['end_fiat_value']) + '/BTC'), 2, 2)
         grid.addWidget(QLabel(_("Final balance")), 4, 0)
         grid.addWidget(QLabel(format_amount(h['end_balance'])), 4, 1)
         grid.addWidget(QLabel(str(h.get('end_fiat_balance'))), 4, 2)
@@ -237,7 +239,7 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
             status, status_str = self.wallet.get_tx_status(tx_hash, height, conf, timestamp)
             has_invoice = self.wallet.invoices.paid.get(tx_hash)
             icon = self.icon_cache.get(":icons/" + TX_ICONS[status])
-            v_str = self.parent.format_amount(value, True, whitespaces=True)
+            v_str = self.parent.format_amount(value, is_diff=True, whitespaces=True)
             balance_str = self.parent.format_amount(balance, whitespaces=True)
             entry = ['', tx_hash, status_str, label, v_str, balance_str]
             fiat_value = None
@@ -343,7 +345,8 @@ class HistoryList(MyTreeWidget, AcceptFileDragDrop):
                            lambda bound_c=c: self.editItem(item, bound_c))
         menu.addAction(_("Details"), lambda: self.parent.show_transaction(tx))
         if is_unconfirmed and tx:
-            rbf = False # is_mine and not tx.is_final()
+            # note: the current implementation of RBF *needs* the old tx fee
+            rbf = False # is_mine and not tx.is_final() and fee is not None
             if rbf:
                 menu.addAction(_("Increase fee"), lambda: self.parent.bump_fee_dialog(tx))
             else:

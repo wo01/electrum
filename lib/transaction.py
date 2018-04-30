@@ -27,6 +27,8 @@
 
 # Note: The deserialization code originally comes from ABE.
 
+from typing import Sequence, Union
+
 from .util import print_error, profiler
 
 from . import bitcoin
@@ -247,7 +249,7 @@ opcodes = Enumeration("Opcodes", [
 ])
 
 
-def script_GetOp(_bytes):
+def script_GetOp(_bytes : bytes):
     i = 0
     while i < len(_bytes):
         vch = None
@@ -370,8 +372,9 @@ def parse_scriptSig(d, _bytes):
     match = [ opcodes.OP_0 ] + [ opcodes.OP_PUSHDATA4 ] * (len(decoded) - 1)
     if match_decoded(decoded, match):
         x_sig = [bh2u(x[1]) for x in decoded[1:-1]]
+        redeem_script_unsanitized = decoded[-1][1]  # for partial multisig txn, this has x_pubkeys
         try:
-            m, n, x_pubkeys, pubkeys, redeemScript = parse_redeemScript(decoded[-1][1])
+            m, n, x_pubkeys, pubkeys, redeem_script = parse_redeemScript_multisig(redeem_script_unsanitized)
         except NotRecognizedRedeemScript:
             print_error("parse_scriptSig: cannot find address in input script (p2sh?)",
                         bh2u(_bytes))
@@ -384,16 +387,16 @@ def parse_scriptSig(d, _bytes):
         d['signatures'] = parse_sig(x_sig)
         d['x_pubkeys'] = x_pubkeys
         d['pubkeys'] = pubkeys
-        d['redeemScript'] = redeemScript
-        d['address'] = hash160_to_p2sh(hash_160(bfh(redeemScript)))
+        d['redeem_script'] = redeem_script
+        d['address'] = hash160_to_p2sh(hash_160(bfh(redeem_script)))
         return
 
     print_error("parse_scriptSig: cannot find address in input script (unknown)",
                 bh2u(_bytes))
 
 
-def parse_redeemScript(s):
-    dec2 = [ x for x in script_GetOp(s) ]
+def parse_redeemScript_multisig(redeem_script: bytes):
+    dec2 = [ x for x in script_GetOp(redeem_script) ]
     try:
         m = dec2[0][0] - opcodes.OP_1 + 1
         n = dec2[-2][0] - opcodes.OP_1 + 1
@@ -406,8 +409,11 @@ def parse_redeemScript(s):
         raise NotRecognizedRedeemScript()
     x_pubkeys = [bh2u(x[1]) for x in dec2[1:-2]]
     pubkeys = [safe_parse_pubkey(x) for x in x_pubkeys]
-    redeemScript = multisig_script(pubkeys, m)
-    return m, n, x_pubkeys, pubkeys, redeemScript
+    redeem_script2 = bfh(multisig_script(x_pubkeys, m))
+    if redeem_script2 != redeem_script:
+        raise NotRecognizedRedeemScript()
+    redeem_script_sanitized = multisig_script(pubkeys, m)
+    return m, n, x_pubkeys, pubkeys, redeem_script_sanitized
 
 
 def get_address_from_output_script(_bytes, *, net=None):
@@ -472,6 +478,18 @@ def parse_input(vds):
     return d
 
 
+def construct_witness(items: Sequence[Union[str, int, bytes]]) -> str:
+    """Constructs a witness from the given stack items."""
+    witness = var_int(len(items))
+    for item in items:
+        if type(item) is int:
+            item = bitcoin.script_num_to_hex(item)
+        elif type(item) is bytes:
+            item = bh2u(item)
+        witness += bitcoin.witness_push(item)
+    return witness
+
+
 def parse_witness(vds, txin):
     n = vds.read_compact_size()
     if n == 0:
@@ -482,8 +500,7 @@ def parse_witness(vds, txin):
     # now 'n' is the number of items in the witness
     w = list(bh2u(vds.read_bytes(vds.read_compact_size())) for i in range(n))
 
-    add_w = lambda x: var_int(len(x) // 2) + x
-    txin['witness'] = var_int(n) + ''.join(add_w(i) for i in w)
+    txin['witness'] = construct_witness(w)
 
     # FIXME: witness version > 0 will probably fail here.
     # For native segwit, we would need the scriptPubKey of the parent txn
@@ -498,18 +515,19 @@ def parse_witness(vds, txin):
         if txin['type'] == 'coinbase':
             pass
         elif txin['type'] == 'p2wsh-p2sh' or n > 2:
+            witness_script_unsanitized = w[-1]  # for partial multisig txn, this has x_pubkeys
             try:
-                m, n, x_pubkeys, pubkeys, witnessScript = parse_redeemScript(bfh(w[-1]))
+                m, n, x_pubkeys, pubkeys, witness_script = parse_redeemScript_multisig(bfh(witness_script_unsanitized))
             except NotRecognizedRedeemScript:
                 raise UnknownTxinType()
             txin['signatures'] = parse_sig(w[1:-1])
             txin['num_sig'] = m
             txin['x_pubkeys'] = x_pubkeys
             txin['pubkeys'] = pubkeys
-            txin['witnessScript'] = witnessScript
+            txin['witness_script'] = witness_script
             if not txin.get('scriptSig'):  # native segwit script
                 txin['type'] = 'p2wsh'
-                txin['address'] = bitcoin.script_to_p2wsh(txin['witnessScript'])
+                txin['address'] = bitcoin.script_to_p2wsh(witness_script)
         elif txin['type'] == 'p2wpkh-p2sh' or n == 2:
             txin['num_sig'] = 1
             txin['x_pubkeys'] = [w[1]]
@@ -614,7 +632,7 @@ def deserialize(raw):
 
 
 
-def multisig_script(public_keys, m):
+def multisig_script(public_keys: Sequence[str], m: int) -> str:
     n = len(public_keys)
     assert n <= 15
     assert m <= n
@@ -701,11 +719,17 @@ class Transaction:
                         public_key.verify_digest(sig_string, pre_hash, sigdecode = ecdsa.util.sigdecode_string)
                         j = pubkeys.index(pubkey)
                         print_error("adding sig", i, j, pubkey, sig)
-                        self._inputs[i]['signatures'][j] = sig
+                        self.add_signature_to_txin(self._inputs[i], j, sig)
                         #self._inputs[i]['x_pubkeys'][j] = pubkey
                         break
         # redo raw
         self.raw = self.serialize()
+
+    @classmethod
+    def add_signature_to_txin(cls, txin, signingPos, sig):
+        txin['signatures'][signingPos] = sig
+        txin['scriptSig'] = None  # force re-serialization
+        txin['witness'] = None    # force re-serialization
 
     def deserialize(self):
         if self.raw is None:
@@ -799,17 +823,16 @@ class Transaction:
             return '00'
         if txin['type'] == 'coinbase':
             return txin['witness']
-        pubkeys, sig_list = self.get_siglist(txin, estimate_size)
-        add_w = lambda x: var_int(len(x) // 2) + x
-        if txin['type'] in ['p2wpkh', 'p2wpkh-p2sh']:
-            witness = var_int(2) + add_w(sig_list[0]) + add_w(pubkeys[0])
-        elif txin['type'] in ['p2wsh', 'p2wsh-p2sh']:
-            n = len(sig_list) + 2
-            witness_script = multisig_script(pubkeys, txin['num_sig'])
-            witness = var_int(n) + '00' + ''.join(add_w(x) for x in sig_list) + add_w(witness_script)
-        else:
-            witness = txin.get('witness', None)
-            if not witness:
+
+        witness = txin.get('witness', None)
+        if witness is None:
+            pubkeys, sig_list = self.get_siglist(txin, estimate_size)
+            if txin['type'] in ['p2wpkh', 'p2wpkh-p2sh']:
+                witness = construct_witness([sig_list[0], pubkeys[0]])
+            elif txin['type'] in ['p2wsh', 'p2wsh-p2sh']:
+                witness_script = multisig_script(pubkeys, txin['num_sig'])
+                witness = construct_witness([0] + sig_list + [witness_script])
+            else:
                 raise Exception('wrong txin type:', txin['type'])
         if self.is_txin_complete(txin) or estimate_size:
             value_field = ''
@@ -819,7 +842,7 @@ class Transaction:
 
     @classmethod
     def is_segwit_input(cls, txin):
-        has_nonzero_witness = txin.get('witness', '00') != '00'
+        has_nonzero_witness = txin.get('witness', '00') not in ('00', None)
         return cls.is_segwit_inputtype(txin['type']) or has_nonzero_witness
 
     @classmethod
@@ -831,6 +854,11 @@ class Transaction:
         _type = txin['type']
         if _type == 'coinbase':
             return txin['scriptSig']
+
+        script_sig = txin.get('scriptSig', None)
+        if script_sig is not None:
+            return script_sig
+
         pubkeys, sig_list = self.get_siglist(txin, estimate_size)
         script = ''.join(push_script(x) for x in sig_list)
         if _type == 'p2pk':
@@ -869,6 +897,10 @@ class Transaction:
 
     @classmethod
     def get_preimage_script(self, txin):
+        preimage_script = txin.get('preimage_script', None)
+        if preimage_script is not None:
+            return preimage_script
+
         pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
         if txin['type'] == 'p2pkh':
             return bitcoin.address_to_script(txin['address'])
@@ -1094,20 +1126,25 @@ class Transaction:
                     sec, compressed = keypairs.get(x_pubkey)
                     pubkey = public_key_from_private_key(sec, compressed)
                     # add signature
-                    pre_hash = Hash(bfh(self.serialize_preimage(i)))
-                    pkey = regenerate_key(sec)
-                    secexp = pkey.secret
-                    private_key = bitcoin.MySigningKey.from_secret_exponent(secexp, curve = SECP256k1)
-                    public_key = private_key.get_verifying_key()
-                    sig = private_key.sign_digest_deterministic(pre_hash, hashfunc=hashlib.sha256, sigencode = ecdsa.util.sigencode_der)
-                    if not public_key.verify_digest(sig, pre_hash, sigdecode = ecdsa.util.sigdecode_der):
-                        raise Exception('Sanity check verifying our own signature failed.')
-                    txin['signatures'][j] = bh2u(sig) + '01'
+                    sig = self.sign_txin(i, sec)
+                    self.add_signature_to_txin(txin, j, sig)
                     #txin['x_pubkeys'][j] = pubkey
                     txin['pubkeys'][j] = pubkey # needed for fd keys
                     self._inputs[i] = txin
         print_error("is_complete", self.is_complete())
         self.raw = self.serialize()
+
+    def sign_txin(self, txin_index, privkey_bytes):
+        pre_hash = Hash(bfh(self.serialize_preimage(txin_index)))
+        pkey = regenerate_key(privkey_bytes)
+        secexp = pkey.secret
+        private_key = bitcoin.MySigningKey.from_secret_exponent(secexp, curve=SECP256k1)
+        public_key = private_key.get_verifying_key()
+        sig = private_key.sign_digest_deterministic(pre_hash, hashfunc=hashlib.sha256, sigencode=ecdsa.util.sigencode_der)
+        if not public_key.verify_digest(sig, pre_hash, sigdecode=ecdsa.util.sigdecode_der):
+            raise Exception('Sanity check verifying our own signature failed.')
+        sig = bh2u(sig) + '01'
+        return sig
 
     def get_outputs(self):
         """convert pubkeys to addresses"""
