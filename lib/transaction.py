@@ -604,7 +604,14 @@ def deserialize(raw):
     vds.write(bfh(raw))
     d = {}
     start = vds.read_cursor
-    d['version'] = vds.read_int32()
+    header = vds.read_uint32()
+    d['overwintered'] = ((header >> 31) == 1)
+    if d['overwintered']:
+        d['version'] = header & 0x7fffffff
+    else:
+        d['version'] = header
+    if d['version'] >= 3:
+        d['versionGroupId'] = vds.read_uint32()
     n_vin = vds.read_compact_size()
 #    is_segwit = (n_vin == 0) # if private address, n_vin == 0
     is_segwit = 0
@@ -621,6 +628,8 @@ def deserialize(raw):
             txin = d['inputs'][i]
             parse_witness(vds, txin)
     d['lockTime'] = vds.read_uint32()
+    if d['version'] >= 3:
+        d['expiryHeight'] = vds.read_uint32()
     if d['version'] >= 2:
         d['joinSplitsRaw'] = vds.get_remains()
         n_JSDescs = vds.read_compact_size()
@@ -967,7 +976,12 @@ class Transaction:
         return s
 
     def serialize_preimage(self, i):
-        nVersion = int_to_hex(self.version, 4)
+        if self.overwintered:
+            nVersion = int_to_hex(self.version + 0x80000000, 4)
+            nVersionGroupId = int_to_hex(self.versionGroupId, 4)
+            nExpiryHeight = int_to_hex(self.expiryHeight, 4)
+        else:
+            nVersion = int_to_hex(self.version, 4)
         nHashType = int_to_hex(1, 4)
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
@@ -983,18 +997,30 @@ class Transaction:
             scriptCode = var_int(len(preimage_script) // 2) + preimage_script
             amount = int_to_hex(txin['value'], 8)
             nSequence = int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
-            preimage = nVersion + hashPrevouts + hashSequence + outpoint + scriptCode + amount + nSequence + hashOutputs + nLocktime + nHashType
+            if self.overwintered:
+                preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + outpoint + scriptCode + amount + nSequence + hashOutputs + nLocktime + nExpiryHeight + nHashType
+            else:
+                preimage = nVersion + hashPrevouts + hashSequence + outpoint + scriptCode + amount + nSequence + hashOutputs + nLocktime + nHashType
         else:
             txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if i==k else '') for k, txin in enumerate(inputs))
             txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
-            preimage = nVersion + txins + txouts + nLocktime + nHashType
+            if self.overwintered:
+                preimage = nVersion + nVersionGroupId + txins + txouts + nLocktime + nExpiryHeight + nHashType
+            else:
+                preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
 
     def is_segwit(self):
         return any(self.is_segwit_input(x) for x in self.inputs())
 
     def serialize(self, estimate_size=False, witness=True):
-        nVersion = int_to_hex(self.version, 4)
+        if self.overwintered:
+            nVersion = int_to_hex(self.version + 0x80000000, 4)
+            nVersionGroupId = int_to_hex(self.versionGroupId, 4)
+            nExpiryHeight = int_to_hex(self.expiryHeight, 4)
+        else:
+            nVersion = int_to_hex(self.version, 4)
+        if self.version >= 3:
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
@@ -1005,12 +1031,20 @@ class Transaction:
             marker = '00'
             flag = '01'
             witness = ''.join(self.serialize_witness(x, estimate_size) for x in inputs)
-            return nVersion + marker + flag + txins + txouts + witness + nLocktime
-        else:
-            if self.version >= 2:
-                return nVersion + txins + txouts + nLocktime + joinSplitsRaw.hex()
+            if self.overwintered:
+                return nVersion + marker + flag + nVersionGroupId + txins + txouts + witness + nLocktime + nExpiryHeight
             else:
-                return nVersion + txins + txouts + nLocktime
+                return nVersion + marker + flag + txins + txouts + witness + nLocktime
+        else:
+            header = nVersion
+            if self.overwintered:
+                header = header + nVersionGroupId + txins + txouts + nLocktime + nExpiryHeight
+            else:
+                header = header + txins + txouts + nLocktime
+            if self.version >= 2:
+                return header + joinSplitsRaw.hex()
+            else:
+                return header
 
     def hash(self):
         print("warning: deprecated tx.hash()")
