@@ -108,8 +108,6 @@ class BCDataStream(object):
         except IndexError:
             raise SerializationError("attempt to read past end of buffer")
 
-        return ''
-
     def read_boolean(self): return self.read_bytes(1)[0] != chr(0)
     def read_int8(self): return self._read_num('<b')
     def read_uint8(self): return self._read_num('<B')
@@ -395,6 +393,15 @@ def parse_scriptSig(d, _bytes):
                 bh2u(_bytes))
 
 
+def _revise_txin_type_guess_for_txin(txin):
+    _type = txin.get('type', 'unknown')
+    # fix incorrect guess of p2sh-segwit
+    we_guessed_segwit_input_type = Transaction.is_segwit_inputtype(_type)
+    has_zero_witness = txin.get('witness', '00') in ('00', None)
+    if we_guessed_segwit_input_type and has_zero_witness:
+        txin['type'] = 'unknown'
+
+
 def parse_redeemScript_multisig(redeem_script: bytes):
     dec2 = [ x for x in script_GetOp(redeem_script) ]
     try:
@@ -460,21 +467,17 @@ def parse_input(vds):
     d['signatures'] = {}
     d['address'] = None
     d['num_sig'] = 0
+    d['scriptSig'] = bh2u(scriptSig)
     if prevout_hash == '00'*32:
         d['type'] = 'coinbase'
-        d['scriptSig'] = bh2u(scriptSig)
     else:
         d['type'] = 'unknown'
         if scriptSig:
-            d['scriptSig'] = bh2u(scriptSig)
             try:
                 parse_scriptSig(d, scriptSig)
             except BaseException:
                 traceback.print_exc(file=sys.stderr)
                 print_error('failed to parse scriptSig', bh2u(scriptSig))
-        else:
-            d['scriptSig'] = ''
-
     return d
 
 
@@ -625,6 +628,9 @@ def deserialize(raw):
         if n_JSDescs > 0:
             d['joinSplitPubKey'] = vds.read_bytes(32)
             d['joinSplitSig'] = vds.read_bytes(64)
+    for i in range(n_vin):
+        txin = d['inputs'][i]
+        _revise_txin_type_guess_for_txin(txin)
     return d
 
 
@@ -855,8 +861,12 @@ class Transaction:
         if _type == 'coinbase':
             return txin['scriptSig']
 
+        # If there is already a saved scriptSig, just return that.
+        # This allows manual creation of txins of any custom type.
+        # However, if the txin is not complete, we might have some garbage
+        # saved from our partial txn ser format, so we re-serialize then.
         script_sig = txin.get('scriptSig', None)
-        if script_sig is not None:
+        if script_sig is not None and self.is_txin_complete(txin):
             return script_sig
 
         pubkeys, sig_list = self.get_siglist(txin, estimate_size)

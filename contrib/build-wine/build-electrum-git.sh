@@ -19,19 +19,22 @@ set -e
 mkdir -p tmp
 cd tmp
 
-for repo in electrum-koto electrum-locale electrum-icons; do
-    if [ -d $repo ]; then
-	cd $repo
-	git pull
-	git checkout master
-	cd ..
-    else
-	URL=https://github.com/wo01/$repo.git
-	git clone -b master $URL $repo
-    fi
-done
+if [ -d ./electrum-koto ]; then
+  rm ./electrum-koto -rf
+fi
 
-pushd electrum-locale
+git clone https://github.com/wo01/electrum-koto -b master
+
+pushd electrum-koto
+if [ ! -z "$1" ]; then
+    git checkout $1
+fi
+
+# Load electrum-icons and electrum-locale for this release
+git submodule init
+git submodule update
+
+pushd ./contrib/deterministic-build/electrum-locale
 for i in ./locale/*; do
     dir=$i/LC_MESSAGES
     mkdir -p $dir
@@ -39,21 +42,16 @@ for i in ./locale/*; do
 done
 popd
 
-pushd electrum-koto
-if [ ! -z "$1" ]; then
-    git checkout $1
-fi
-
 VERSION=${VERSION:-`git describe --tags --dirty`}
 echo "Last commit: $VERSION"
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
 rm -rf $WINEPREFIX/drive_c/electrum-koto
-cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
+cp -r electrum $WINEPREFIX/drive_c/electrum-koto
 cp electrum-koto/LICENCE .
-cp -r electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
-cp electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/gui/qt/
+cp -r ./electrum/contrib/deterministic-build/electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
+cp ./electrum/contrib/deterministic-build/electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
