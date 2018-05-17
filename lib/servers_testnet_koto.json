@@ -1,2 +1,8 @@
 {
+    "testnet.kotocoin.info": {
+        "pruning": "-",
+        "s": "51002",
+        "t": "51001",
+        "version": "1.2"
+    }
 }
