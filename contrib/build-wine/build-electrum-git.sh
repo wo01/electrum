@@ -48,10 +48,10 @@ find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
 rm -rf $WINEPREFIX/drive_c/electrum-koto
-cp -r electrum $WINEPREFIX/drive_c/electrum-koto
+cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
 cp electrum-koto/LICENCE .
-cp -r ./electrum/contrib/deterministic-build/electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
-cp ./electrum/contrib/deterministic-build/electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/gui/qt/
+cp -r ./electrum-koto/contrib/deterministic-build/electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
+cp ./electrum-koto/contrib/deterministic-build/electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
