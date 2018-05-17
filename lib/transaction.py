@@ -681,7 +681,10 @@ class Transaction:
         self._joinsplitsraw = None
         self.locktime = 0
         self.version = 1
-
+        self.overwintered = False
+        self.versionGroupId = 0
+        self.expiryHeight = 0
+        
     def update(self, raw):
         self.raw = raw
         self._inputs = None
@@ -757,6 +760,10 @@ class Transaction:
         self._outputs = [(x['type'], x['address'], x['value']) for x in d['outputs']]
         self.locktime = d['lockTime']
         self.version = d['version']
+        self.overwintered = d['overwintered']
+        if self.version >= 3:
+            self.versionGroupId = d['versionGroupId']
+            self.expiryHeight = d['expiryHeight']
         if self.version >= 2:
             self._joinsplits = d['joinSplits']
             self._joinsplitsraw = d['joinSplitsRaw']
@@ -1020,7 +1027,6 @@ class Transaction:
             nExpiryHeight = int_to_hex(self.expiryHeight, 4)
         else:
             nVersion = int_to_hex(self.version, 4)
-        if self.version >= 3:
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
