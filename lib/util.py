@@ -560,7 +560,7 @@ mainnet_block_explorers = {
 }
 
 testnet_block_explorers = {
-    'Insight': ('http://testnet.kotocoin.info:3001/',
+    'Insight': ('https://testnet.kotocoin.info/',
                        {'tx': 'tx/', 'addr': 'address/'}),
     'system default': ('blockchain:',
                        {'tx': 'tx/', 'addr': 'address/'})
