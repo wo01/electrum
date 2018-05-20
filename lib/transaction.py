@@ -983,6 +983,7 @@ class Transaction:
         return s
 
     def serialize_preimage(self, i):
+        self.overwintered = True
         if self.overwintered:
             nVersion = int_to_hex(self.version + 0x80000000, 4)
             nVersionGroupId = int_to_hex(self.versionGroupId, 4)
