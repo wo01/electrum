@@ -681,7 +681,7 @@ class Transaction:
         self._joinsplitsraw = None
         self.locktime = 0
         self.version = 1
-        self.overwintered = False
+        self.overwintered = True
         self.versionGroupId = 0
         self.expiryHeight = 0
         
