@@ -321,7 +321,7 @@ class ElectrumWindow(App):
         from electrum.util import bh2u
         try:
             text = bh2u(base_decode(data, None, base=43))
-            tx = Transaction(text)
+            tx = Transaction(text, self.network.get_server_height())
             tx.deserialize()
         except:
             tx = None

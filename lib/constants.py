@@ -97,18 +97,21 @@ class KotoMainnet(BitcoinMainnet):
     ADDRTYPE_P2PKH = [0x18, 0x36]
     ADDRTYPE_P2SH = [0x18, 0x3b]
     SEGWIT_HRP = "koto"
+    OVERWINTER_HEIGHT = 283000
     GENESIS = "6d424c350729ae633275d51dc3496e16cd1b1d195c164da00f39c499a2e9959e"
 
 class KotoTestnet(BitcoinTestnet):
     ADDRTYPE_P2PKH = [0x18, 0xa4]
     ADDRTYPE_P2SH = [0x18, 0x39]
     SEGWIT_HRP = "toko"
+    OVERWINTER_HEIGHT = 93500
     GENESIS = "bf84afbde20c2d213b68b231ddb585ab616ef7567226820f00d9b397d774d2f0"
 
 class KotoRegtest(KotoTestnet):
     SEGWIT_HRP = "reg"
     GENESIS = "dd905d5cda469020ddc364fdb530a4fb4559b9a117f78fdfbcc89d29d4909289"
     DEFAULT_SERVERS = read_json('servers_regtest.json', {})
+    OVERWINTER_HEIGHT = -1
     CHECKPOINTS = []
 
 

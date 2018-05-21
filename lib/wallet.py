@@ -142,7 +142,7 @@ def sweep(privkeys, network, config, recipient, fee=None, imax=100):
     total = sum(i.get('value') for i in inputs)
     if fee is None:
         outputs = [(TYPE_ADDRESS, recipient, total)]
-        tx = Transaction.from_io(inputs, outputs)
+        tx = Transaction.from_io(inputs, outputs, network.get_server_height())
         fee = config.estimate_fee(tx.estimated_size())
     if total - fee < 0:
         raise Exception(_('Not enough funds on address.') + '\nTotal: %d satoshis\nFee: %d'%(total, fee))
@@ -152,7 +152,7 @@ def sweep(privkeys, network, config, recipient, fee=None, imax=100):
     outputs = [(TYPE_ADDRESS, recipient, total - fee)]
     locktime = network.get_local_height()
 
-    tx = Transaction.from_io(inputs, outputs, locktime=locktime)
+    tx = Transaction.from_io(inputs, outputs, network.get_server_height(), locktime=locktime)
     tx.BIP_LI01_sort()
     tx.set_rbf(False)
     tx.sign(keypairs)
@@ -255,7 +255,7 @@ class Abstract_Wallet(PrintError):
         tx_list = self.storage.get('transactions', {})
         self.transactions = {}
         for tx_hash, raw in tx_list.items():
-            tx = Transaction(raw)
+            tx = Transaction(raw, -1)
             self.transactions[tx_hash] = tx
             if self.txi.get(tx_hash) is None and self.txo.get(tx_hash) is None \
                     and (tx_hash not in self.pruned_txo.values()):
@@ -1256,17 +1256,17 @@ class Abstract_Wallet(PrintError):
             max_change = self.max_change_outputs if self.multiple_change else 1
             coin_chooser = coinchooser.get_coin_chooser(config)
             tx = coin_chooser.make_tx(inputs, outputs, change_addrs[:max_change],
-                                      fee_estimator, self.dust_threshold())
+                                      fee_estimator, self.dust_threshold(), self.network.get_server_height())
         else:
             # FIXME?? this might spend inputs with negative effective value...
             sendable = sum(map(lambda x:x['value'], inputs))
             _type, data, value = outputs[i_max]
             outputs[i_max] = (_type, data, 0)
-            tx = Transaction.from_io(inputs, outputs[:])
+            tx = Transaction.from_io(inputs, outputs[:], self.network.get_server_height())
             fee = fee_estimator(tx.estimated_size())
             amount = max(0, sendable - tx.output_value() - fee)
             outputs[i_max] = (_type, data, amount)
-            tx = Transaction.from_io(inputs, outputs[:])
+            tx = Transaction.from_io(inputs, outputs[:], self.network.get_server_height())
 
         # Sort the inputs and outputs deterministically
         tx.BIP_LI01_sort()
@@ -1411,7 +1411,7 @@ class Abstract_Wallet(PrintError):
         if delta > 0:
             raise Exception(_('Cannot bump fee') + ': ' + _('could not find suitable outputs'))
         locktime = self.get_local_height()
-        tx_new = Transaction.from_io(inputs, outputs, locktime=locktime)
+        tx_new = Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
         tx_new.BIP_LI01_sort()
         return tx_new
 
@@ -1432,7 +1432,7 @@ class Abstract_Wallet(PrintError):
         outputs = [(TYPE_ADDRESS, address, value - fee)]
         locktime = self.get_local_height()
         # note: no need to call tx.BIP_LI01_sort() here - single input/output
-        return Transaction.from_io(inputs, outputs, locktime=locktime)
+        return Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
 
     def add_input_info(self, txin):
         address = txin['address']
@@ -1462,7 +1462,7 @@ class Abstract_Wallet(PrintError):
         if not tx and self.network:
             request = ('blockchain.transaction.get', [tx_hash])
             try:
-                tx = Transaction(self.network.synchronous_get(request))
+                tx = Transaction(self.network.synchronous_get(request), self.network.get_server_height())
             except TimeoutException as e:
                 self.print_error('getting input txn from network timed out for {}'.format(tx_hash))
                 if not ignore_timeout:

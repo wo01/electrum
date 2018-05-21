@@ -186,7 +186,7 @@ class CoinChooserBase(PrintError):
         return change
 
     def make_tx(self, coins, outputs, change_addrs, fee_estimator,
-                dust_threshold):
+                dust_threshold, height):
         """Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
@@ -200,7 +200,7 @@ class CoinChooserBase(PrintError):
         self.p = PRNG(''.join(sorted(utxos)))
 
         # Copy the outputs so when adding change we don't modify "outputs"
-        tx = Transaction.from_io([], outputs[:])
+        tx = Transaction.from_io([], outputs[:], height)
         # Weight of the transaction with no inputs and no change
         # Note: this will use legacy tx serialization as the need for "segwit"
         # would be detected from inputs. The only side effect should be that the

@@ -42,6 +42,14 @@ import sys
 #
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 
+from pyblake2 import blake2b
+
+PREVOUTS_HASH_PERSON = b'Koto_PrevoutHash'
+SEQUENCE_HASH_PERSON = b'Koto_SequencHash'
+OUTPUTS_HASH_PERSON = b'Koto_OutputsHash'
+JOINSPLITS_HASH_PERSON = b'Koto_JSplitsHash'
+OVERWINTER_HASH_PERSON = b'Koto_SigHash\x19\x1b\xa8\x5b'
+
 NO_SIGNATURE = 'ff'
 
 KOTO_NUM_JS_INPUTS = 2
@@ -666,7 +674,7 @@ class Transaction:
             self.raw = self.serialize()
         return self.raw
 
-    def __init__(self, raw):
+    def __init__(self, raw, height):
         if raw is None:
             self.raw = None
         elif isinstance(raw, str):
@@ -678,12 +686,19 @@ class Transaction:
         self._inputs = None
         self._outputs = None
         self._joinsplits = None
-        self._joinsplitsraw = None
+        if constants.net.OVERWINTER_HEIGHT == -1 or height < constants.net.OVERWINTER_HEIGHT:
+            self.version = 1
+            self.overwintered = False
+            self.versionGroupId = 0
+            self.expiryHeight = 0
+            self._joinsplitsraw = None
+        else:
+            self.version = 3
+            self.overwintered = True
+            self.versionGroupId = 0x3C48270
+            self.expiryHeight = 0
+            self._joinsplitsraw = b'\x00'
         self.locktime = 0
-        self.version = 1
-        self.overwintered = True
-        self.versionGroupId = 0
-        self.expiryHeight = 0
         
     def update(self, raw):
         self.raw = raw
@@ -724,7 +739,12 @@ class Transaction:
             for sig in sigs2:
                 if sig in sigs1:
                     continue
-                pre_hash = Hash(bfh(self.serialize_preimage(i)))
+                if self.overwintered:
+                    h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
+                    h.update(bfh(self.serialize_preimage(i)))
+                    pre_hash = h.digest()
+                else:
+                    pre_hash = Hash(bfh(self.serialize_preimage(i)))
                 # der to string
                 order = ecdsa.ecdsa.generator_secp256k1.order()
                 r, s = ecdsa.util.sigdecode_der(bfh(sig[:-2]), order)
@@ -770,8 +790,8 @@ class Transaction:
         return d
 
     @classmethod
-    def from_io(klass, inputs, outputs, locktime=0):
-        self = klass(None)
+    def from_io(klass, inputs, outputs, height, locktime=0):
+        self = klass(None, height)
         self._inputs = inputs
         self._outputs = outputs
         self.locktime = locktime
@@ -983,7 +1003,6 @@ class Transaction:
         return s
 
     def serialize_preimage(self, i):
-        self.overwintered = True
         if self.overwintered:
             nVersion = int_to_hex(self.version + 0x80000000, 4)
             nVersionGroupId = int_to_hex(self.versionGroupId, 4)
@@ -995,27 +1014,34 @@ class Transaction:
         inputs = self.inputs()
         outputs = self.outputs()
         txin = inputs[i]
-        # TODO: py3 hex
-        if self.is_segwit_input(txin):
-            hashPrevouts = bh2u(Hash(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
-            hashSequence = bh2u(Hash(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
-            hashOutputs = bh2u(Hash(bfh(''.join(self.serialize_output(o) for o in outputs))))
+# TODO: py3 hex
+#        if self.is_segwit_input(txin):
+        if self.overwintered:
+            h = blake2b(digest_size=32, person=PREVOUTS_HASH_PERSON)
+            h.update(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs)))
+            hashPrevouts = bh2u(h.digest())
+
+            h = blake2b(digest_size=32, person=SEQUENCE_HASH_PERSON)
+            h.update(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs)))
+            hashSequence = bh2u(h.digest())
+
+            h = blake2b(digest_size=32, person=OUTPUTS_HASH_PERSON)
+            h.update(bfh(''.join(self.serialize_output(o) for o in outputs)))
+            hashOutputs = bh2u(h.digest())
+
+            hashJoinSplits = int_to_hex(0, 32)
+
             outpoint = self.serialize_outpoint(txin)
             preimage_script = self.get_preimage_script(txin)
             scriptCode = var_int(len(preimage_script) // 2) + preimage_script
             amount = int_to_hex(txin['value'], 8)
             nSequence = int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
-            if self.overwintered:
-                preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + outpoint + scriptCode + amount + nSequence + hashOutputs + nLocktime + nExpiryHeight + nHashType
-            else:
-                preimage = nVersion + hashPrevouts + hashSequence + outpoint + scriptCode + amount + nSequence + hashOutputs + nLocktime + nHashType
+
+            preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
         else:
             txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if i==k else '') for k, txin in enumerate(inputs))
             txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
-            if self.overwintered:
-                preimage = nVersion + nVersionGroupId + txins + txouts + nLocktime + nExpiryHeight + nHashType
-            else:
-                preimage = nVersion + txins + txouts + nLocktime + nHashType
+            preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
 
     def is_segwit(self):
@@ -1038,10 +1064,7 @@ class Transaction:
             marker = '00'
             flag = '01'
             witness = ''.join(self.serialize_witness(x, estimate_size) for x in inputs)
-            if self.overwintered:
-                return nVersion + marker + flag + nVersionGroupId + txins + txouts + witness + nLocktime + nExpiryHeight
-            else:
-                return nVersion + marker + flag + txins + txouts + witness + nLocktime
+            return nVersion + marker + flag + txins + txouts + witness + nLocktime
         else:
             header = nVersion
             if self.overwintered:
@@ -1186,7 +1209,12 @@ class Transaction:
         self.raw = self.serialize()
 
     def sign_txin(self, txin_index, privkey_bytes):
-        pre_hash = Hash(bfh(self.serialize_preimage(txin_index)))
+        if self.overwintered:
+            h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
+            h.update(bfh(self.serialize_preimage(txin_index)))
+            pre_hash = h.digest()
+        else:
+            pre_hash = Hash(bfh(self.serialize_preimage(txin_index)))
         pkey = regenerate_key(privkey_bytes)
         secexp = pkey.secret
         private_key = bitcoin.MySigningKey.from_secret_exponent(secexp, curve=SECP256k1)

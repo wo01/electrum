@@ -143,7 +143,7 @@ class Synchronizer(ThreadJob):
             return
         tx_hash = params[0]
         #assert tx_hash == hash_encode(Hash(bytes.fromhex(result)))
-        tx = Transaction(result)
+        tx = Transaction(result, self.network.get_server_height())
         try:
             tx.deserialize()
         except Exception:

@@ -2300,7 +2300,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         from electrum.transaction import tx_from_str
         try:
             tx = tx_from_str(txt)
-            return Transaction(tx)
+            return Transaction(tx, self.netowork.get_server_height())
         except BaseException as e:
             self.show_critical(_("Electrum was unable to parse your transaction") + ":\n" + str(e))
             return
@@ -2364,7 +2364,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             except BaseException as e:
                 self.show_message(str(e))
                 return
-            tx = transaction.Transaction(r)
+            tx = transaction.Transaction(r, self.network.get_server_height())
             self.show_transaction(tx)
 
     @protected

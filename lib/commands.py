@@ -227,14 +227,14 @@ class Commands:
                 txin['num_sig'] = 1
 
         outputs = [(TYPE_ADDRESS, x['address'], int(x['value'])) for x in outputs]
-        tx = Transaction.from_io(inputs, outputs, locktime=locktime)
+        tx = Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
         tx.sign(keypairs)
         return tx.as_dict()
 
     @command('wp')
     def signtransaction(self, tx, privkey=None, password=None):
         """Sign a transaction. The wallet keys will be used unless a private key is provided."""
-        tx = Transaction(tx)
+        tx = Transaction(tx, self.network.get_server_height())
         if privkey:
             txin_type, privkey2, compressed = bitcoin.deserialize_privkey(privkey)
             pubkey = bitcoin.public_key_from_private_key(privkey2, compressed)
@@ -248,13 +248,13 @@ class Commands:
     @command('')
     def deserialize(self, tx):
         """Deserialize a serialized transaction"""
-        tx = Transaction(tx)
+        tx = Transaction(tx, self.network.get_server_height())
         return tx.deserialize()
 
     @command('n')
     def broadcast(self, tx, timeout=30):
         """Broadcast a transaction to the network. """
-        tx = Transaction(tx)
+        tx = Transaction(tx, self.network.get_server_height())
         return self.network.broadcast(tx, timeout)
 
     @command('')
@@ -520,7 +520,7 @@ class Commands:
         else:
             raw = self.network.synchronous_get(('blockchain.transaction.get', [txid]))
             if raw:
-                tx = Transaction(raw)
+                tx = Transaction(raw, self.network.get_server_height())
             else:
                 raise Exception("Unknown transaction")
         return tx.as_dict()
@@ -607,7 +607,7 @@ class Commands:
     @command('w')
     def addtransaction(self, tx):
         """ Add a transaction to the wallet history """
-        tx = Transaction(tx)
+        tx = Transaction(tx, self.network.get_server_height())
         if not self.wallet.add_transaction(tx.txid(), tx):
             return False
         self.wallet.save_transactions()
