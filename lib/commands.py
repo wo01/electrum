@@ -228,7 +228,7 @@ class Commands:
 
         outputs = [(TYPE_ADDRESS, x['address'], int(x['value'])) for x in outputs]
         tx = Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
-        tx.sign(keypairs)
+        tx.sign(keypairs, self.wallet)
         return tx.as_dict()
 
     @command('wp')
@@ -240,7 +240,7 @@ class Commands:
             pubkey = bitcoin.public_key_from_private_key(privkey2, compressed)
             h160 = bitcoin.hash_160(bfh(pubkey))
             x_pubkey = 'fd' + bh2u(b'\x00' + h160)
-            tx.sign({x_pubkey:(privkey2, compressed)})
+            tx.sign({x_pubkey:(privkey2, compressed)}, wallet)
         else:
             self.wallet.sign_transaction(tx, password)
         return tx.as_dict()
@@ -390,7 +390,7 @@ class Commands:
         privkeys = privkey.split()
         self.nocheck = nocheck
         #dest = self._resolver(destination)
-        tx = sweep(privkeys, self.network, self.config, destination, tx_fee, imax)
+        tx = sweep(privkeys, self.network, self.config, destination, self.wallet, tx_fee, imax)
         return tx.as_dict() if tx else None
 
     @command('wp')

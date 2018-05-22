@@ -1191,8 +1191,9 @@ class Transaction:
         s, r = self.signature_count()
         return r == s
 
-    def sign(self, keypairs):
+    def sign(self, keypairs, wallet):
         for i, txin in enumerate(self.inputs()):
+            wallet.add_input_info(txin)
             num = txin['num_sig']
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             for j, x_pubkey in enumerate(x_pubkeys):

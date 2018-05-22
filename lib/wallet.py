@@ -137,7 +137,7 @@ def sweep_preparations(privkeys, network, imax=100):
     return inputs, keypairs
 
 
-def sweep(privkeys, network, config, recipient, fee=None, imax=100):
+def sweep(privkeys, network, config, recipient, wallet, fee=None, imax=100):
     inputs, keypairs = sweep_preparations(privkeys, network, imax)
     total = sum(i.get('value') for i in inputs)
     if fee is None:
@@ -155,7 +155,7 @@ def sweep(privkeys, network, config, recipient, fee=None, imax=100):
     tx = Transaction.from_io(inputs, outputs, network.get_server_height(), locktime=locktime)
     tx.BIP_LI01_sort()
     tx.set_rbf(False)
-    tx.sign(keypairs)
+    tx.sign(keypairs, wallet)
     return tx
 
 
@@ -1441,8 +1441,8 @@ class Abstract_Wallet(PrintError):
         address = txin['address']
         if self.is_mine(address):
             txin['type'] = self.get_txin_type(address)
-            # segwit needs value to sign
-            if txin.get('value') is None and Transaction.is_segwit_input(txin):
+            # overwinter needs value to sign
+            if txin.get('value') is None: # and Transaction.is_segwit_input(txin):
                 received, spent = self.get_addr_io(address)
                 item = received.get(txin['prevout_hash']+':%d'%txin['prevout_n'])
                 tx_height, value, is_cb = item
@@ -1502,7 +1502,7 @@ class Abstract_Wallet(PrintError):
         for k in sorted(self.get_keystores(), key=lambda ks: ks.ready_to_sign(), reverse=True):
             try:
                 if k.can_sign(tx):
-                    k.sign_transaction(tx, password)
+                    k.sign_transaction(tx, password, self)
             except UserCancelled:
                 continue
 
