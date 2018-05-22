@@ -564,6 +564,9 @@ class Abstract_Wallet(PrintError):
                     v_in += value
             else:
                 is_partial = True
+        if len(tx.inputs()) == 0:
+            v_in = tx.vpub()
+            is_mine = True
         if not is_mine:
             is_partial = False
         for addr, value in tx.get_outputs():

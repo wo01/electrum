@@ -640,9 +640,9 @@ def deserialize(raw):
         d['expiryHeight'] = vds.read_uint32()
     if d['version'] >= 2:
         d['joinSplitsRaw'] = vds.get_remains()
-        n_JSDescs = vds.read_compact_size()
-        d['joinSplits'] = [parse_JSDescription(vds) for i in range(n_JSDescs)]
-        if n_JSDescs > 0:
+        d['n_JSDescs'] = vds.read_compact_size()
+        d['joinSplits'] = [parse_JSDescription(vds) for i in range(d['n_JSDescs'])]
+        if d['n_JSDescs'] > 0:
             d['joinSplitPubKey'] = vds.read_bytes(32)
             d['joinSplitSig'] = vds.read_bytes(64)
     for i in range(n_vin):
@@ -686,6 +686,7 @@ class Transaction:
         self._inputs = None
         self._outputs = None
         self._joinsplits = None
+        self._vpub_new = 0
         if constants.net.OVERWINTER_HEIGHT == -1 or height < constants.net.OVERWINTER_HEIGHT:
             self.version = 1
             self.overwintered = False
@@ -699,6 +700,9 @@ class Transaction:
             self.expiryHeight = 0
             self._joinsplitsraw = b'\x00'
         self.locktime = 0
+        
+    def vpub(self):
+        return self._vpub_new
         
     def update(self, raw):
         self.raw = raw
@@ -785,6 +789,7 @@ class Transaction:
             self.versionGroupId = d['versionGroupId']
             self.expiryHeight = d['expiryHeight']
         if self.version >= 2:
+            self._vpub_new = sum(d['joinSplits'][x]['vpub_new'] for x in range(d['n_JSDescs']))
             self._joinsplits = d['joinSplits']
             self._joinsplitsraw = d['joinSplitsRaw']
         return d
