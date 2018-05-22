@@ -223,5 +223,5 @@ class Plugin(BasePlugin):
             return
 
         self.listener.clear(keyhash)
-        tx = transaction.Transaction(message)
+        tx = transaction.Transaction(message, window.network)
         show_transaction(tx, window, prompt_if_unsaved=True)
