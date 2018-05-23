@@ -42,7 +42,10 @@ import sys
 #
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 
-from pyblake2 import blake2b
+if sys.version_info.minor < 6:
+    from pyblake2 import blake2b
+else:
+    from hashlib import blake2b
 
 PREVOUTS_HASH_PERSON = b'Koto_PrevoutHash'
 SEQUENCE_HASH_PERSON = b'Koto_SequencHash'
