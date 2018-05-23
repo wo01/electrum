@@ -1193,7 +1193,7 @@ class Transaction:
 
     def sign(self, keypairs, wallet):
         for i, txin in enumerate(self.inputs()):
-            wallet.add_input_info(txin)
+            wallet.add_input_value(txin)
             num = txin['num_sig']
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             for j, x_pubkey in enumerate(x_pubkeys):

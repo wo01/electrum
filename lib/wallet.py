@@ -1441,13 +1441,23 @@ class Abstract_Wallet(PrintError):
         address = txin['address']
         if self.is_mine(address):
             txin['type'] = self.get_txin_type(address)
-            # overwinter needs value to sign
-            if txin.get('value') is None: # and Transaction.is_segwit_input(txin):
+            # segwit needs value to sign
+            if txin.get('value') is None and Transaction.is_segwit_input(txin):
                 received, spent = self.get_addr_io(address)
                 item = received.get(txin['prevout_hash']+':%d'%txin['prevout_n'])
                 tx_height, value, is_cb = item
                 txin['value'] = value
             self.add_input_sig_info(txin, address)
+
+    def add_input_value(self, txin):
+        address = txin['address']
+        if self.is_mine(address):
+            # overwinter needs value to sign
+            if txin.get('value') is None:
+                received, spent = self.get_addr_io(address)
+                item = received.get(txin['prevout_hash']+':%d'%txin['prevout_n'])
+                tx_height, value, is_cb = item
+                txin['value'] = value
 
     def can_sign(self, tx):
         if tx.is_complete():
