@@ -700,7 +700,7 @@ class Transaction:
             self.version = 3
             self.overwintered = True
             self.versionGroupId = 0x3C48270
-            self.expiryHeight = 0
+            self.expiryHeight = 20
             self._joinsplitsraw = b'\x00'
         self.locktime = 0
         
