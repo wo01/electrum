@@ -144,4 +144,7 @@ cp $WINEPREFIX/drive_c/python$PYTHON_VERSION/Lib/site-packages/PyQt5/Qt/bin/* $W
 # install yescrypt
 $PYTHON -m pip install $YESCRYPT_HASH_PYTHON_URL
 
+mkdir -p $WINEPREFIX/drive_c/tmp
+cp secp256k1/libsecp256k1.dll $WINEPREFIX/drive_c/tmp/
+
 echo "Wine is configured."
