@@ -186,7 +186,7 @@ is_seed = lambda x: bool(seed_type(x))
 
 ############ functions from pywallet #####################
 
-def hash160_to_b58_address(h160L bytes, addrtype):
+def hash160_to_b58_address(h160L: bytes, addrtype):
     s = bytes([addrtype])
     s += h160
     return base_encode(s+Hash(s)[0:4], base=58)
