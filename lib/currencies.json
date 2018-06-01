@@ -3,5 +3,10 @@
         "BTC",
         "USD",
         "JPY"
+    ],
+    "Fixed100Sat": [
+        "BTC",
+        "USD",
+        "JPY"
     ]
 }
