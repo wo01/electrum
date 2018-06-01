@@ -116,11 +116,11 @@ class ExchangeBase(PrintError):
         return sorted([str(a) for (a, b) in rates.items() if b is not None and len(a)==3])
 
 
-class Exvo(ExchangeBase):
+class Bisq(ExchangeBase):
 
     def get_rates(self, ccy):
-        json = self.get_json('exvo.io', '/api/v2/tickers.json')
-        btc = Decimal(json['kotobtc']['ticker']['last'])
+        json = self.get_json('markets.bisq.network', '/api/ticker?market=koto_btc')
+        btc = Decimal(json[0]['last'])
 
         res = {}
         if ccy == 'BTC':
@@ -255,7 +255,7 @@ class FxThread(ThreadJob):
         return self.config.get("currency", "JPY")
 
     def config_exchange(self):
-        return self.config.get('use_exchange', 'Exvo')
+        return self.config.get('use_exchange', 'Bisq')
 
     def show_history(self):
         return self.is_enabled() and self.get_history_config() and self.ccy in self.exchange.history_ccys()
@@ -267,7 +267,7 @@ class FxThread(ThreadJob):
         self.on_quotes()
 
     def set_exchange(self, name):
-        class_ = globals().get(name, Exvo)
+        class_ = globals().get(name, Bisq)
         self.print_error("using exchange", name)
         if self.config_exchange() != name:
             self.config.set_key('use_exchange', name, True)
