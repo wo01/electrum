@@ -46,7 +46,8 @@ import sys
 from .i18n import _
 from .util import (NotEnoughFunds, PrintError, UserCancelled, profiler,
                    format_satoshis, format_fee_satoshis, NoDynamicFeeEstimates,
-                   TimeoutException, WalletFileException, BitcoinException)
+                   TimeoutException, WalletFileException, BitcoinException,
+                   InvalidPassword)
 
 from .bitcoin import *
 from .version import *
@@ -92,12 +93,13 @@ def dust_threshold(network):
 def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
     if txin_type != 'p2pk':
         address = bitcoin.pubkey_to_address(txin_type, pubkey)
-        sh = bitcoin.address_to_scripthash(address)
+        scripthash = bitcoin.address_to_scripthash(address)
     else:
         script = bitcoin.public_key_to_p2pk_script(pubkey)
-        sh = bitcoin.script_to_scripthash(script)
+        scripthash = bitcoin.script_to_scripthash(script)
         address = '(pubkey)'
-    u = network.synchronous_get(('blockchain.scripthash.listunspent', [sh]))
+
+    u = network.listunspent_for_scripthash(scripthash)
     for item in u:
         if len(inputs) >= imax:
             break
@@ -204,11 +206,9 @@ class Abstract_Wallet(PrintError):
         self.fiat_value            = storage.get('fiat_value', {})
         self.receive_requests      = storage.get('payment_requests', {})
 
-        # Verified transactions.  Each value is a (height, timestamp, block_pos) tuple.  Access with self.lock.
+        # Verified transactions.  txid -> (height, timestamp, block_pos).  Access with self.lock.
         self.verified_tx = storage.get('verified_tx3', {})
-
-        # Transactions pending verification.  A map from tx hash to transaction
-        # height.  Access is not contended so no lock is needed.
+        # Transactions pending verification.  txid -> tx_height. Access with self.lock.
         self.unverified_tx = defaultdict(int)
 
         self.load_keystore()
@@ -221,9 +221,10 @@ class Abstract_Wallet(PrintError):
         self.load_unverified_transactions()
         self.remove_local_transactions_we_dont_have()
 
-        # there is a difference between wallet.up_to_date and interface.is_up_to_date()
-        # interface.is_up_to_date() returns true when all requests have been answered and processed
+        # There is a difference between wallet.up_to_date and network.is_up_to_date().
+        # network.is_up_to_date() returns true when all requests have been answered and processed
         # wallet.up_to_date is true when the wallet is synchronized (stronger requirement)
+        # Neither of them considers the verifier.
         self.up_to_date = False
 
         # save wallet type the first time
@@ -287,6 +288,12 @@ class Abstract_Wallet(PrintError):
             self.storage.put('tx_fees', self.tx_fees)
             self.storage.put('pruned_txo', self.pruned_txo)
             self.storage.put('addr_history', self.history)
+            if write:
+                self.storage.write()
+
+    def save_verified_tx(self, write=False):
+        with self.lock:
+            self.storage.put('verified_tx3', self.verified_tx)
             if write:
                 self.storage.write()
 
@@ -364,6 +371,10 @@ class Abstract_Wallet(PrintError):
             self.up_to_date = up_to_date
         if up_to_date:
             self.save_transactions(write=True)
+            # if the verifier is also up to date, persist that too;
+            # otherwise it will persist its results when it finishes
+            if self.verifier and self.verifier.is_up_to_date():
+                self.save_verified_tx(write=True)
 
     def is_up_to_date(self):
         with self.lock: return self.up_to_date
@@ -441,25 +452,28 @@ class Abstract_Wallet(PrintError):
     def add_unverified_tx(self, tx_hash, tx_height):
         if tx_height in (TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_UNCONF_PARENT) \
                 and tx_hash in self.verified_tx:
-            self.verified_tx.pop(tx_hash)
+            with self.lock:
+                self.verified_tx.pop(tx_hash)
             if self.verifier:
-                self.verifier.merkle_roots.pop(tx_hash, None)
+                self.verifier.remove_spv_proof_for_tx(tx_hash)
 
         # tx will be verified only if height > 0
         if tx_hash not in self.verified_tx:
-            self.unverified_tx[tx_hash] = tx_height
+            with self.lock:
+                self.unverified_tx[tx_hash] = tx_height
 
     def add_verified_tx(self, tx_hash, info):
-        # Remove from the unverified map and add to the verified map and
-        self.unverified_tx.pop(tx_hash, None)
+        # Remove from the unverified map and add to the verified map
         with self.lock:
+            self.unverified_tx.pop(tx_hash, None)
             self.verified_tx[tx_hash] = info  # (tx_height, timestamp, pos)
         height, conf, timestamp = self.get_tx_height(tx_hash)
         self.network.trigger_callback('verified', tx_hash, height, conf, timestamp)
 
     def get_unverified_txs(self):
         '''Returns a map from tx hash to transaction height'''
-        return self.unverified_tx
+        with self.lock:
+            return dict(self.unverified_tx)  # copy
 
     def undo_verifications(self, blockchain, height):
         '''Used by the verifier when a reorg has happened'''
@@ -968,7 +982,7 @@ class Abstract_Wallet(PrintError):
                     self.unverified_tx.pop(tx_hash, None)
                     self.verified_tx.pop(tx_hash, None)
                     if self.verifier:
-                        self.verifier.merkle_roots.pop(tx_hash, None)
+                        self.verifier.remove_spv_proof_for_tx(tx_hash)
                     # but remove completely if not is_mine
                     if self.txi[tx_hash] == {}:
                         # FIXME the test here should be for "not all is_mine"; cannot detect conflict in some cases
@@ -1325,7 +1339,7 @@ class Abstract_Wallet(PrintError):
             # remain so they will be GC-ed
             self.storage.put('stored_height', self.get_local_height())
         self.save_transactions()
-        self.storage.put('verified_tx3', self.verified_tx)
+        self.save_verified_tx()
         self.storage.write()
 
     def wait_until_synchronized(self, callback=None):
@@ -1473,9 +1487,12 @@ class Abstract_Wallet(PrintError):
         # all the input txs, in which case we ask the network.
         tx = self.transactions.get(tx_hash, None)
         if not tx and self.network:
-            request = ('blockchain.transaction.get', [tx_hash])
             try:
+<<<<<<< HEAD
                 tx = Transaction(self.network.synchronous_get(request), self.network.get_server_height())
+=======
+                tx = Transaction(self.network.get_transaction(tx_hash))
+>>>>>>> upstream/master
             except TimeoutException as e:
                 self.print_error('getting input txn from network timed out for {}'.format(tx_hash))
                 if not ignore_timeout:
@@ -1977,8 +1994,7 @@ class Imported_Wallet(Simple_Wallet):
                 self.unverified_tx.pop(tx_hash, None)
                 self.transactions.pop(tx_hash, None)
                 # FIXME: what about pruned_txo?
-
-        self.storage.put('verified_tx3', self.verified_tx)
+            self.storage.put('verified_tx3', self.verified_tx)
         self.save_transactions()
 
         self.set_label(address, None)

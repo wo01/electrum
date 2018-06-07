@@ -508,7 +508,7 @@ class ElectrumWindow(App):
                 self.load_wallet(wallet)
         else:
             Logger.debug('Electrum: Wallet not found. Launching install wizard')
-            storage = WalletStorage(path)
+            storage = WalletStorage(path, manual_upgrades=True)
             wizard = Factory.InstallWizard(self.electrum_config, storage)
             wizard.bind(on_wizard_complete=self.on_wizard_complete)
             action = wizard.storage.get_action()
@@ -516,6 +516,8 @@ class ElectrumWindow(App):
 
     def on_stop(self):
         Logger.info('on_stop')
+        if self.wallet:
+            self.electrum_config.save_last_wallet(self.wallet)
         self.stop_wallet()
 
     def stop_wallet(self):
@@ -814,7 +816,7 @@ class ElectrumWindow(App):
         Clock.schedule_once(lambda dt: on_success(tx))
 
     def _broadcast_thread(self, tx, on_complete):
-        ok, txid = self.network.broadcast(tx)
+        ok, txid = self.network.broadcast_transaction(tx)
         Clock.schedule_once(lambda dt: on_complete(ok, txid))
 
     def broadcast(self, tx, pr=None):
@@ -923,10 +925,8 @@ class ElectrumWindow(App):
                 return
         self.stop_wallet()
         os.unlink(wallet_path)
-        self.show_error("Wallet removed:" + basename)
-        d = os.listdir(dirname)
-        name = 'default_wallet'
-        new_path = os.path.join(dirname, name)
+        self.show_error(_("Wallet removed: {}").format(basename))
+        new_path = self.electrum_config.get_wallet_path()
         self.load_wallet_by_name(new_path)
 
     def show_seed(self, label):

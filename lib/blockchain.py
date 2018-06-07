@@ -35,6 +35,11 @@ except ImportError as e:
 
 MAX_TARGET = 0x0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
+
+class MissingHeader(Exception):
+    pass
+
+
 def serialize_header(res):
     s = int_to_hex(res.get('version'), 4) \
         + rev_hex(res.get('prev_block_hash')) \
@@ -72,8 +77,7 @@ blockchains = {}
 def read_blockchains(config):
     blockchains[0] = Blockchain(config, 0, None)
     fdir = os.path.join(util.get_headers_dir(config), 'forks')
-    if not os.path.exists(fdir):
-        os.mkdir(fdir)
+    util.make_dir(fdir)
     l = filter(lambda x: x.startswith('fork_'), os.listdir(fdir))
     l = sorted(l, key = lambda x: int(x.split('_')[1]))
     for filename in l:
@@ -428,7 +432,10 @@ class Blockchain(util.PrintError):
         headers = {}
         headers[header.get('block_height')] = header
         self.print_error("can connect", height)
-        target = self.get_target(height, headers)
+        try:
+            target = self.get_target(height, headers)
+        except MissingHeader:
+            return False
         try:
             self.verify_header(header, prev_hash, target)
         except BaseException as e:
