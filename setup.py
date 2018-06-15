@@ -65,6 +65,7 @@ setup(
         'electrum_plugins.keepkey',
         'electrum_plugins.labels',
         'electrum_plugins.ledger',
+        'electrum_plugins.revealer',
         'electrum_plugins.trezor',
         'electrum_plugins.digitalbitbox',
         'electrum_plugins.trustedcoin',
@@ -76,17 +77,10 @@ setup(
         'electrum_plugins': 'plugins',
     },
     package_data={
+        '': ['*.txt', '*.json', '*.ttf', '*.otf'],
         'electrum': [
-            'servers_koto.json',
-            'servers_testnet_koto.json',
-            'servers_regtest.json',
-            'currencies.json',
-            'checkpoints_koto.json',
-            'checkpoints_testnet_koto.json',
-            'www/index.html',
-            'wordlist/*.txt',
             'locale/*/LC_MESSAGES/electrum.mo',
-        ]
+        ],
     },
     scripts=['electrum'],
     data_files=data_files,
