@@ -37,19 +37,17 @@ from .bitcoin import *
 import struct
 import traceback
 import sys
+import os
 
 #
 # Workalike python implementation of Bitcoin's CDataStream class.
 #
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 
-if sys.version_info.minor < 6:
+if 'ANDROID_DATA' in os.environ or sys.version_info.minor < 6:
     from pyblake2 import blake2b
 else:
-    try:
-        from hashlib import blake2b
-    except ImportError as e: # for Andorid
-       from pyblake2 import blake2b
+    from hashlib import blake2b
 
 PREVOUTS_HASH_PERSON = b'Koto_PrevoutHash'
 SEQUENCE_HASH_PERSON = b'Koto_SequencHash'
