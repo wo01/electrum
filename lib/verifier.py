@@ -84,7 +84,7 @@ class SPV(ThreadJob):
         tx_height = merkle.get('block_height')
         pos = merkle.get('pos')
         try:
-            merkle_root = self.hash_merkle_root(merkle['merkle'], tx_hash, pos)
+            merkle_root = self.hash_merkle_root(merkle['merkle'], tx_hash, pos, tx_height)
         except InnerNodeOfSpvProofIsValidTx:
             self.print_error("merkle verification failed for {} (inner node looks like tx)"
                              .format(tx_hash))
@@ -116,21 +116,21 @@ class SPV(ThreadJob):
             self.wallet.save_verified_tx(write=True)
 
     @classmethod
-    def hash_merkle_root(cls, merkle_s, target_hash, pos):
+    def hash_merkle_root(cls, merkle_s, target_hash, pos, height):
         h = hash_decode(target_hash)
         for i in range(len(merkle_s)):
             item = merkle_s[i]
             h = Hash(hash_decode(item) + h) if ((pos >> i) & 1) else Hash(h + hash_decode(item))
-            cls._raise_if_valid_tx(bh2u(h))
+            cls._raise_if_valid_tx(bh2u(h), height)
         return hash_encode(h)
 
     @classmethod
-    def _raise_if_valid_tx(cls, raw_tx: str):
+    def _raise_if_valid_tx(cls, raw_tx: str, height):
         # If an inner node of the merkle proof is also a valid tx, chances are, this is an attack.
         # https://lists.linuxfoundation.org/pipermail/bitcoin-dev/2018-June/016105.html
         # https://lists.linuxfoundation.org/pipermail/bitcoin-dev/attachments/20180609/9f4f5b1f/attachment-0001.pdf
         # https://bitcoin.stackexchange.com/questions/76121/how-is-the-leaf-node-weakness-in-merkle-trees-exploitable/76122#76122
-        tx = Transaction(raw_tx)
+        tx = Transaction(raw_tx, height)
         try:
             tx.deserialize()
         except:
