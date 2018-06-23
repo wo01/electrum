@@ -49,11 +49,11 @@ if 'ANDROID_DATA' in os.environ or sys.version_info.minor < 6:
 else:
     from hashlib import blake2b
 
-PREVOUTS_HASH_PERSON = b'Koto_PrevoutHash'
-SEQUENCE_HASH_PERSON = b'Koto_SequencHash'
-OUTPUTS_HASH_PERSON = b'Koto_OutputsHash'
-JOINSPLITS_HASH_PERSON = b'Koto_JSplitsHash'
-OVERWINTER_HASH_PERSON = b'Koto_SigHash\x19\x1b\xa8\x5b'
+PREVOUTS_HASH_PERSON = b'ZcashPrevoutHash'
+SEQUENCE_HASH_PERSON = b'ZcashSequencHash'
+OUTPUTS_HASH_PERSON = b'ZcashOutputsHash'
+JOINSPLITS_HASH_PERSON = b'ZcashJSplitsHash'
+OVERWINTER_HASH_PERSON = b'ZcashSigHash\x19\x1b\xa8\x5b'
 
 NO_SIGNATURE = 'ff'
 PARTIAL_TXN_HEADER_MAGIC = b'EPTF\xff'
@@ -706,7 +706,7 @@ class Transaction:
         else:
             self.version = 3
             self.overwintered = True
-            self.versionGroupId = 0x3C48270
+            self.versionGroupId = 0x2E7D970
             self.expiryHeight = height + 20
             self._joinsplitsraw = b'\x00'
         self.locktime = 0
