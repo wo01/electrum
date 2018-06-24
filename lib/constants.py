@@ -63,6 +63,7 @@ class BitcoinMainnet:
         'p2wpkh':      0x04b24746,  # zpub
         'p2wsh':       0x02aa7ed3,  # Zpub
     }
+    BIP44_COIN_TYPE = 0
 
 
 class BitcoinTestnet:
@@ -91,6 +92,7 @@ class BitcoinTestnet:
         'p2wpkh':      0x045f1cf6,  # vpub
         'p2wsh':       0x02575483,  # Vpub
     }
+    BIP44_COIN_TYPE = 1
 
 
 class KotoMainnet(BitcoinMainnet):
@@ -99,6 +101,7 @@ class KotoMainnet(BitcoinMainnet):
     SEGWIT_HRP = "koto"
     OVERWINTER_HEIGHT = 283000
     GENESIS = "6d424c350729ae633275d51dc3496e16cd1b1d195c164da00f39c499a2e9959e"
+    BIP44_COIN_TYPE = 510
 
 class KotoTestnet(BitcoinTestnet):
     ADDRTYPE_P2PKH = [0x18, 0xa4]
