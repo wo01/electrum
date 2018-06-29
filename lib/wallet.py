@@ -1524,7 +1524,10 @@ class Abstract_Wallet(PrintError):
         for k in sorted(self.get_keystores(), key=lambda ks: ks.ready_to_sign(), reverse=True):
             try:
                 if k.can_sign(tx):
-                    k.sign_transaction(tx, password, self)
+                    if isinstance(k, Hardware_KeyStore):
+                        k.sign_transaction(tx, password)
+                    else:
+                        k.sign_transaction(tx, password, self)
             except UserCancelled:
                 continue
         return tx
