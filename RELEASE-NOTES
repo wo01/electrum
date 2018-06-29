@@ -1,4 +1,4 @@
-# Release 3.2.0 - (unreleased)
+# Release 3.2.0 - Satoshi's Vision (unreleased)
 
  * If present, libsecp256k1 is used to speed up elliptic curve
    operations. The library is bundled in the Windows, MacOS, and
@@ -32,6 +32,8 @@
    limit).  Having an xpub on the online machine is still the
    recommended setup, as this allows the online machine to generate
    new addresses on demand.
+ * Segwit multisig for bip39 and hardware wallets is now enabled.
+   (both p2wsh-p2sh and native p2wsh)
  * Ledger: offline signing for segwit inputs (#3302) This has already
    worked for Trezor and Digital Bitbox. Offline segwit signing can be
    combined with online imported addresses wallets.
