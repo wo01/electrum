@@ -73,7 +73,8 @@ Label.register('JP',
                'gui/kivy/data/fonts/GenShinGothic-P-Bold.ttf')
 
 
-from electrum.util import base_units, NoDynamicFeeEstimates
+from electrum.util import (base_units, NoDynamicFeeEstimates, decimal_point_to_base_unit_name,
+                           base_unit_name_to_decimal_point)
 
 
 class ElectrumWindow(App):
@@ -164,11 +165,13 @@ class ElectrumWindow(App):
         self._trigger_update_history()
 
     def _get_bu(self):
-        return self.electrum_config.get('base_unit', 'KOTO')
+        decimal_point = self.electrum_config.get('decimal_point', 8)
+        return decimal_point_to_base_unit_name(decimal_point)
 
     def _set_bu(self, value):
         assert value in base_units.keys()
-        self.electrum_config.set_key('base_unit', value, True)
+        decimal_point = base_unit_name_to_decimal_point(value)
+        self.electrum_config.set_key('decimal_point', decimal_point, True)
         self._trigger_update_status()
         self._trigger_update_history()
 
@@ -290,6 +293,9 @@ class ElectrumWindow(App):
         return os.path.basename(self.wallet.storage.path) if self.wallet else ' '
 
     def on_pr(self, pr):
+        if not self.wallet:
+            self.show_error(_('No wallet loaded.'))
+            return
         if pr.verify(self.wallet.contacts):
             key = self.wallet.invoices.add(pr)
             if self.invoices_screen:
