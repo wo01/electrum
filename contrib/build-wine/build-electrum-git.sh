@@ -1,7 +1,7 @@
 #!/bin/bash
 
 NAME_ROOT=electrum-koto
-PYTHON_VERSION=3.5.4
+PYTHON_VERSION=3.6.6
 
 # These settings probably don't need any change
 export WINEPREFIX=/opt/wine64
@@ -62,8 +62,8 @@ popd
 rm -rf $WINEPREFIX/drive_c/electrum-koto
 cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
 cp electrum-koto/LICENCE .
-cp -r ./electrum-koto/contrib/deterministic-build/electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/lib/
-cp ./electrum-koto/contrib/deterministic-build/electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/gui/qt/
+cp -r ./electrum-koto/contrib/deterministic-build/electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/electrum/
+cp ./electrum-koto/contrib/deterministic-build/electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/electrum/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
