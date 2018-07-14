@@ -15,7 +15,7 @@ LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
 
 PYTHON_VERSION=3.6.6
 
-YESCRYPT_HASH_PYTHON_URL=https://github.com/wo01/yescrypt_python/releases/download/1.0/yescrypt-1.0-cp35-cp35m-win32.whl
+YESCRYPT_HASH_PYTHON_URL=https://github.com/wo01/yescrypt_python/releases/download/1.0/yescrypt-1.0-cp36-cp36m-win32.whl
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
