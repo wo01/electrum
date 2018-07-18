@@ -19,23 +19,7 @@ set -e
 mkdir -p tmp
 cd tmp
 
-if [ -d ./electrum-koto ]; then
-  rm ./electrum-koto -rf
-fi
-
-git clone https://github.com/wo01/electrum-koto -b master
-
-pushd electrum-koto
-if [ ! -z "$1" ]; then
-    # a commit/tag/branch was specified
-    if ! git cat-file -e "$1" 2> /dev/null
-    then  # can't find target
-        # try pull requests
-        git config --local --add remote.origin.fetch '+refs/pull/*/merge:refs/remotes/origin/pr/*'
-        git fetch --all
-    fi
-    git checkout $1
-fi
+pushd $WINEPREFIX/drive_c/electrum-koto
 
 # Load electrum-icons and electrum-locale for this release
 git submodule init
@@ -59,11 +43,9 @@ popd
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
 popd
 
-rm -rf $WINEPREFIX/drive_c/electrum-koto
-cp -r electrum-koto $WINEPREFIX/drive_c/electrum-koto
-cp electrum-koto/LICENCE .
-cp -r ./electrum-koto/contrib/deterministic-build/electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/electrum/
-cp ./electrum-koto/contrib/deterministic-build/electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/electrum/gui/qt/
+cp $WINEPREFIX/drive_c/electrum-koto/LICENCE .
+cp -r $WINEPREFIX/drive_c/electrum-koto/contrib/deterministic-build/electrum-locale/locale $WINEPREFIX/drive_c/electrum-koto/electrum/
+cp $WINEPREFIX/drive_c/electrum-koto/contrib/deterministic-build/electrum-icons/icons_rc.py $WINEPREFIX/drive_c/electrum-koto/electrum/gui/qt/
 
 # Install frozen dependencies
 $PYTHON -m pip install -r ../../deterministic-build/requirements.txt
