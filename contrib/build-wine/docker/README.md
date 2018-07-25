@@ -28,9 +28,9 @@ folder.
     $ git checkout $REV
     $ sudo docker run \
         --name electrum-wine-builder-cont \
-        -v $PWD:/opt/wine64/drive_c/electrum \
+        -v $PWD:/opt/wine64/drive_c/electrum-koto \
         --rm \
-        --workdir /opt/wine64/drive_c/electrum/contrib/build-wine \
+        --workdir /opt/wine64/drive_c/electrum-koto/contrib/build-wine \
         electrum-wine-builder-img \
         ./build.sh
     ```
