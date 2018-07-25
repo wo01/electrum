@@ -39,9 +39,9 @@ class Plugin(BasePlugin):
         BasePlugin.__init__(self, parent, config, name)
         self.base_dir = config.electrum_path()+'/revealer/'
 
-        if self.config.get('calibration_h') == None:
+        if self.config.get('calibration_h') is None:
             self.config.set_key('calibration_h', 0)
-        if self.config.get('calibration_v') == None:
+        if self.config.get('calibration_v') is None:
             self.config.set_key('calibration_v', 0)
 
         self.calibration_h = self.config.get('calibration_h')
@@ -57,8 +57,9 @@ class Plugin(BasePlugin):
         make_dir(self.base_dir)
 
     @hook
-    def set_seed(self, seed, parent):
+    def set_seed(self, seed, has_extension, parent):
         self.cseed = seed.upper()
+        self.has_extension = has_extension
         parent.addButton(':icons/revealer.png', partial(self.setup_dialog, parent), "Revealer"+_(" secret backup utility"))
 
     def requires_settings(self):
@@ -168,6 +169,10 @@ class Plugin(BasePlugin):
                                      "<br/>","<b>", self.base_dir+ self.filename+self.version+"_"+self.code_id,"</b>"]))
         dialog.close()
 
+    def ext_warning(self, dialog):
+        dialog.show_message(''.join(["<b>",_("Warning: "), "</b>", _("your seed extension will not be included in the encrypted backup.")]))
+        dialog.close()
+
     def bdone(self, dialog):
         dialog.show_message(''.join([_("Digital Revealer ({}_{}) saved as PNG and PDF at:").format(self.version, self.code_id),
                                      "<br/>","<b>", self.base_dir + 'revealer_' +self.version + '_'+ self.code_id, '</b>']))
@@ -263,7 +268,7 @@ class Plugin(BasePlugin):
             max_letters = 17
             max_lines = 6
             max_words = 3
-        if len(txt) > 102:
+        else:
             fontsize = 9
             linespace = 10
             max_letters = 24
@@ -359,6 +364,9 @@ class Plugin(BasePlugin):
         else:
             self.filename = self.wallet_name+'_'+ _('seed')+'_'
             self.was = self.wallet_name +' ' + _('seed')
+
+        if self.has_extension:
+            self.ext_warning(self.c_dialog)
 
         if not calibration:
             self.toPdf(QImage(cypherseed))
@@ -588,8 +596,8 @@ class Plugin(BasePlugin):
                 qr_qt = self.paintQR(self.hex_noise.upper() +self.code_id)
                 target = QRectF(base_img.width()-65-qr_size,
                                 base_img.height()-65-qr_size,
-                                qr_size, qr_size );
-                painter.drawImage(target, qr_qt);
+                                qr_size, qr_size )
+                painter.drawImage(target, qr_qt)
                 painter.setPen(QPen(Qt.black, 4))
                 painter.drawLine(base_img.width()-65-qr_size,
                                 base_img.height()-65-qr_size,

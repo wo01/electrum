@@ -25,7 +25,7 @@ pushd $WINEPREFIX/drive_c/electrum-koto
 git submodule init
 git submodule update
 
-VERSION=${VERSION:-`git describe --tags --dirty`}
+VERSION=`git describe --tags --dirty || printf 'custom'`
 echo "Last commit: $VERSION"
 
 pushd ./contrib/deterministic-build/electrum-locale
