@@ -8,7 +8,7 @@ import os
 PACKAGE='Electrum-Koto'
 PYPKG='electrum'
 MAIN_SCRIPT='run_electrum'
-ICONS_FILE='kotocolor.icns'
+ICONS_FILE='kotocolor_back.icns'
 
 for i, x in enumerate(sys.argv):
     if x == '--name':
