@@ -51,7 +51,7 @@ from .keystore import load_keystore, Hardware_KeyStore
 from .storage import multisig_type, STO_EV_PLAINTEXT, STO_EV_USER_PW, STO_EV_XPUB_PW
 
 from . import transaction, bitcoin, coinchooser, paymentrequest, contacts
-from .transaction import Transaction, TxOutput
+from .transaction import Transaction, TxOutput, TxOutputHwInfo
 from .plugin import run_hook
 from .address_synchronizer import (AddressSynchronizer, TX_HEIGHT_LOCAL,
                                    TX_HEIGHT_UNCONF_PARENT, TX_HEIGHT_UNCONFIRMED)
@@ -179,6 +179,8 @@ class Abstract_Wallet(AddressSynchronizer):
         self.fiat_value            = storage.get('fiat_value', {})
         self.receive_requests      = storage.get('payment_requests', {})
 
+        self.calc_unused_change_addresses()
+
         # save wallet type the first time
         if self.storage.get('wallet_type') is None:
             self.storage.put('wallet_type', self.wallet_type)
@@ -224,6 +226,16 @@ class Abstract_Wallet(AddressSynchronizer):
 
     def synchronize(self):
         pass
+
+    def calc_unused_change_addresses(self):
+        with self.lock:
+            if hasattr(self, '_unused_change_addresses'):
+                addrs = self._unused_change_addresses
+            else:
+                addrs = self.get_change_addresses()
+            self._unused_change_addresses = [addr for addr in addrs if
+                                            self.get_address_history_len(addr) == 0]
+            return list(self._unused_change_addresses)
 
     def is_deterministic(self):
         return self.keystore.is_deterministic()
@@ -272,8 +284,6 @@ class Abstract_Wallet(AddressSynchronizer):
             return
 
     def is_mine(self, address):
-        if not super().is_mine(address):
-            return False
         try:
             self.get_address_index(address)
         except KeyError:
@@ -556,21 +566,22 @@ class Abstract_Wallet(AddressSynchronizer):
             self.add_input_info(item)
 
         # change address
+        # if we leave it empty, coin_chooser will set it
+        change_addrs = []
         if change_addr:
             change_addrs = [change_addr]
-        else:
-            addrs = self.get_change_addresses()[-self.gap_limit_for_change:]
-            if self.use_change and addrs:
-                # New change addresses are created only after a few
-                # confirmations.  Select the unused addresses within the
-                # gap limit; if none take one at random
-                change_addrs = [addr for addr in addrs if
-                                self.get_num_tx(addr) == 0]
-                if not change_addrs:
-                    change_addrs = [random.choice(addrs)]
+        elif self.use_change:
+            # Recalc and get unused change addresses
+            addrs = self.calc_unused_change_addresses()
+            # New change addresses are created only after a few
+            # confirmations.
+            if addrs:
+                # if there are any unused, select all
+                change_addrs = addrs
             else:
-                # coin_chooser will set change address
-                change_addrs = []
+                # if there are none, take one randomly from the last few
+                addrs = self.get_change_addresses()[-self.gap_limit_for_change:]
+                change_addrs = [random.choice(addrs)] if addrs else []
 
         # Fee estimator
         if fixed_fee is None:
@@ -799,7 +810,8 @@ class Abstract_Wallet(AddressSynchronizer):
                 pubkeys = self.get_public_keys(addr)
                 # sort xpubs using the order of pubkeys
                 sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys, xpubs)))
-                info[addr] = index, sorted_xpubs, self.m if isinstance(self, Multisig_Wallet) else None
+                num_sig = self.m if isinstance(self, Multisig_Wallet) else None
+                info[addr] = TxOutputHwInfo(index, sorted_xpubs, num_sig, self.txin_type)
         tx.output_info = info
 
     def sign_transaction(self, tx, password):
@@ -1082,17 +1094,6 @@ class Abstract_Wallet(AddressSynchronizer):
         addr = self.pubkeys_to_address(pubkey)
         index = self.get_address_index(addr)
         return self.keystore.decrypt_message(index, message, password)
-
-    def get_depending_transactions(self, tx_hash):
-        """Returns all (grand-)children of tx_hash in this wallet."""
-        children = set()
-        # TODO rewrite this to use self.spent_outpoints
-        for other_hash, tx in self.transactions.items():
-            for input in (tx.inputs()):
-                if input["prevout_hash"] == tx_hash:
-                    children.add(other_hash)
-                    children |= self.get_depending_transactions(other_hash)
-        return children
 
     def txin_value(self, txin):
         txid = txin['prevout_hash']
@@ -1446,6 +1447,9 @@ class Deterministic_Wallet(Abstract_Wallet):
             self._addr_to_addr_index[address] = (for_change, n)
             self.save_addresses()
             self.add_address(address)
+            if for_change:
+                # note: if it's actually used, it will get filtered later
+                self._unused_change_addresses.append(address)
             return address
 
     def synchronize_sequence(self, for_change):
