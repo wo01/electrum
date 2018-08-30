@@ -142,6 +142,21 @@ class Bisq(ExchangeBase):
         return res
 
 
+class SafeTrade(ExchangeBase):
+
+    def get_rates(self, ccy):
+        json = self.get_json('safe.trade', '/api/v2/tickers/kotobtc')
+        btc = Decimal(json['ticker']['last'])
+
+        res = {}
+        if ccy == 'BTC':
+            res['BTC'] = btc
+        else:
+            _to_fiat(self, btc, ccy, res)
+
+        return res
+
+
 class Fixed100Sat(ExchangeBase):
     def name(self):
         return "Fixed (100 sat)"

@@ -4,6 +4,11 @@
         "USD",
         "JPY"
     ],
+    "SafeTrade": [
+        "BTC",
+        "USD",
+        "JPY"
+    ],
     "Fixed100Sat": [
         "BTC",
         "USD",
