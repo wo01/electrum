@@ -6,7 +6,7 @@ Electrum for Koto - Lightweight Koto client
   Licence: MIT Licence
   Origin Author: Thomas Voegtlin
   Port Maintainer: WO
-  Language: Python
+  Language: Python (>= 3.6)
   Homepage: https://electrum.kotocoin.info/
 
 

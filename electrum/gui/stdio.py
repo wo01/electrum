@@ -34,7 +34,7 @@ class ElectrumGui:
         self.str_fee = ""
 
         self.wallet = Wallet(storage)
-        self.wallet.start_threads(self.network)
+        self.wallet.start_network(self.network)
         self.contacts = self.wallet.contacts
 
         self.network.register_callback(self.on_network, ['updated', 'banner'])
@@ -88,7 +88,7 @@ class ElectrumGui:
         + "%d"%(width[2]+delta)+"s"+"%"+"%d"%(width[3]+delta)+"s"
         messages = []
 
-        for tx_hash, tx_mined_status, delta, balance in self.wallet.get_history():
+        for tx_hash, tx_mined_status, delta, balance in reversed(self.wallet.get_history()):
             if tx_mined_status.conf:
                 timestamp = tx_mined_status.timestamp
                 try:
@@ -200,7 +200,7 @@ class ElectrumGui:
             self.wallet.labels[tx.txid()] = self.str_description
 
         print(_("Please wait..."))
-        status, msg = self.network.broadcast_transaction(tx)
+        status, msg = self.network.broadcast_transaction_from_non_network_thread(tx)
 
         if status:
             print(_('Payment sent.'))

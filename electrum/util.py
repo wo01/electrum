@@ -23,7 +23,7 @@
 import binascii
 import os, sys, re, json
 from collections import defaultdict
-from typing import NamedTuple
+from typing import NamedTuple, Union
 from datetime import datetime
 import decimal
 from decimal import Decimal
@@ -34,12 +34,18 @@ import hmac
 import stat
 import inspect
 from locale import localeconv
+import asyncio
+import urllib.request, urllib.parse, urllib.error
+import builtins
+import json
+import time
+
+import aiohttp
+from aiohttp_socks import SocksConnector, SocksVer
+from aiorpcx import TaskGroup
 
 from .i18n import _
 
-
-import urllib.request, urllib.parse, urllib.error
-import queue
 
 def inv_dict(d):
     return {v: k for k, v in d.items()}
@@ -276,9 +282,12 @@ class DaemonThread(threading.Thread, PrintError):
 
 
 verbosity = '*'
-def set_verbosity(b):
+def set_verbosity(filters: Union[str, bool]):
     global verbosity
-    verbosity = b
+    if type(filters) is bool:  # backwards compat
+        verbosity = '*' if filters else ''
+        return
+    verbosity = filters
 
 
 def print_error(*args):
@@ -713,7 +722,6 @@ def raw_input(prompt=None):
         sys.stdout.write(prompt)
     return builtin_raw_input()
 
-import builtins
 builtin_raw_input = builtins.input
 builtins.input = raw_input
 
@@ -728,114 +736,6 @@ def parse_json(message):
     except:
         j = None
     return j, message[n+1:]
-
-
-class timeout(Exception):
-    pass
-
-import socket
-import json
-import ssl
-import time
-
-
-class SocketPipe:
-    def __init__(self, socket):
-        self.socket = socket
-        self.message = b''
-        self.set_timeout(0.1)
-        self.recv_time = time.time()
-
-    def set_timeout(self, t):
-        self.socket.settimeout(t)
-
-    def idle_time(self):
-        return time.time() - self.recv_time
-
-    def get(self):
-        while True:
-            response, self.message = parse_json(self.message)
-            if response is not None:
-                return response
-            try:
-                data = self.socket.recv(1024)
-            except socket.timeout:
-                raise timeout
-            except ssl.SSLError:
-                raise timeout
-            except socket.error as err:
-                if err.errno == 60:
-                    raise timeout
-                elif err.errno in [11, 35, 10035]:
-                    print_error("socket errno %d (resource temporarily unavailable)"% err.errno)
-                    time.sleep(0.2)
-                    raise timeout
-                else:
-                    print_error("pipe: socket error", err)
-                    data = b''
-            except:
-                traceback.print_exc(file=sys.stderr)
-                data = b''
-
-            if not data:  # Connection closed remotely
-                return None
-            self.message += data
-            self.recv_time = time.time()
-
-    def send(self, request):
-        out = json.dumps(request) + '\n'
-        out = out.encode('utf8')
-        self._send(out)
-
-    def send_all(self, requests):
-        out = b''.join(map(lambda x: (json.dumps(x) + '\n').encode('utf8'), requests))
-        self._send(out)
-
-    def _send(self, out):
-        while out:
-            try:
-                sent = self.socket.send(out)
-                out = out[sent:]
-            except ssl.SSLError as e:
-                print_error("SSLError:", e)
-                time.sleep(0.1)
-                continue
-
-
-class QueuePipe:
-
-    def __init__(self, send_queue=None, get_queue=None):
-        self.send_queue = send_queue if send_queue else queue.Queue()
-        self.get_queue = get_queue if get_queue else queue.Queue()
-        self.set_timeout(0.1)
-
-    def get(self):
-        try:
-            return self.get_queue.get(timeout=self.timeout)
-        except queue.Empty:
-            raise timeout
-
-    def get_all(self):
-        responses = []
-        while True:
-            try:
-                r = self.get_queue.get_nowait()
-                responses.append(r)
-            except queue.Empty:
-                break
-        return responses
-
-    def set_timeout(self, t):
-        self.timeout = t
-
-    def send(self, request):
-        self.send_queue.put(request)
-
-    def send_all(self, requests):
-        for request in requests:
-            self.send(request)
-
-
 
 
 def setup_thread_excepthook():
@@ -900,6 +800,27 @@ def make_dir(path, allow_symlink=True):
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
 
+class AIOSafeSilentException(Exception): pass
+
+
+def aiosafe(f):
+    # save exception in object.
+    # f must be a method of a PrintError instance.
+    # aiosafe calls should not be nested
+    async def f2(*args, **kwargs):
+        self = args[0]
+        try:
+            return await f(*args, **kwargs)
+        except AIOSafeSilentException as e:
+            self.exception = e
+        except asyncio.CancelledError as e:
+            self.exception = e
+        except BaseException as e:
+            self.print_error("Exception in", f.__name__, ":", e.__class__.__name__, str(e))
+            traceback.print_exc(file=sys.stderr)
+            self.exception = e
+    return f2
+
 TxMinedStatus = NamedTuple("TxMinedStatus", [("height", int),
                                              ("conf", int),
                                              ("timestamp", int),
@@ -908,3 +829,26 @@ VerifiedTxInfo = NamedTuple("VerifiedTxInfo", [("height", int),
                                                ("timestamp", int),
                                                ("txpos", int),
                                                ("header_hash", str)])
+
+def make_aiohttp_session(proxy):
+    if proxy:
+        connector = SocksConnector(
+            socks_ver=SocksVer.SOCKS5 if proxy['mode'] == 'socks5' else SocksVer.SOCKS4,
+            host=proxy['host'],
+            port=int(proxy['port']),
+            username=proxy.get('user', None),
+            password=proxy.get('password', None),
+            rdns=True
+        )
+        return aiohttp.ClientSession(headers={'User-Agent' : 'Electrum'}, timeout=aiohttp.ClientTimeout(total=10), connector=connector)
+    else:
+        return aiohttp.ClientSession(headers={'User-Agent' : 'Electrum'}, timeout=aiohttp.ClientTimeout(total=10))
+
+
+class SilentTaskGroup(TaskGroup):
+
+    def spawn(self, *args, **kwargs):
+        # don't complain if group is already closed.
+        if self._closed:
+            raise asyncio.CancelledError()
+        return super().spawn(*args, **kwargs)

@@ -7,7 +7,10 @@ import electrum
 from electrum.util import format_satoshis, set_verbosity
 from electrum.bitcoin import is_address, COIN, TYPE_ADDRESS
 from electrum.transaction import TxOutput
-from .. import Wallet, WalletStorage
+from electrum.wallet import Wallet
+from electrum.storage import WalletStorage
+from electrum.network import NetworkParameters
+from electrum.interface import deserialize_server
 
 _ = lambda x:x
 
@@ -27,7 +30,7 @@ class ElectrumGui:
             password = getpass.getpass('Password:', stream=None)
             storage.decrypt(password)
         self.wallet = Wallet(storage)
-        self.wallet.start_threads(self.network)
+        self.wallet.start_network(self.network)
         self.contacts = self.wallet.contacts
 
         locale.setlocale(locale.LC_ALL, '')
@@ -179,8 +182,10 @@ class ElectrumGui:
         self.maxpos = 6
 
     def print_banner(self):
-        if self.network:
-            self.print_list( self.network.banner.split('\n'))
+        if self.network and self.network.banner:
+            banner = self.network.banner
+            banner = banner.replace('\r', '')
+            self.print_list(banner.split('\n'))
 
     def print_qr(self, data):
         import qrcode
@@ -195,9 +200,15 @@ class ElectrumGui:
         self.qr.print_ascii(out=s, invert=False)
         msg = s.getvalue()
         lines = msg.split('\n')
-        for i, l in enumerate(lines):
-            l = l.encode("utf-8")
-            self.stdscr.addstr(i+5, 5, l, curses.color_pair(3))
+        try:
+            for i, l in enumerate(lines):
+                l = l.encode("utf-8")
+                self.stdscr.addstr(i+5, 5, l, curses.color_pair(3))
+        except curses.error:
+            m = 'error. screen too small?'
+            m = m.encode(self.encoding)
+            self.stdscr.addstr(5, 1, m, 0)
+
 
     def print_list(self, lst, firstline = None):
         lst = list(lst)
@@ -298,19 +309,22 @@ class ElectrumGui:
     def main(self):
 
         tty.setraw(sys.stdin)
-        while self.tab != -1:
-            self.run_tab(0, self.print_history, self.run_history_tab)
-            self.run_tab(1, self.print_send_tab, self.run_send_tab)
-            self.run_tab(2, self.print_receive, self.run_receive_tab)
-            self.run_tab(3, self.print_addresses, self.run_banner_tab)
-            self.run_tab(4, self.print_contacts, self.run_contacts_tab)
-            self.run_tab(5, self.print_banner, self.run_banner_tab)
-
-        tty.setcbreak(sys.stdin)
-        curses.nocbreak()
-        self.stdscr.keypad(0)
-        curses.echo()
-        curses.endwin()
+        try:
+            while self.tab != -1:
+                self.run_tab(0, self.print_history, self.run_history_tab)
+                self.run_tab(1, self.print_send_tab, self.run_send_tab)
+                self.run_tab(2, self.print_receive, self.run_receive_tab)
+                self.run_tab(3, self.print_addresses, self.run_banner_tab)
+                self.run_tab(4, self.print_contacts, self.run_contacts_tab)
+                self.run_tab(5, self.print_banner, self.run_banner_tab)
+        except curses.error as e:
+            raise Exception("Error with curses. Is your screen too small?") from e
+        finally:
+            tty.setcbreak(sys.stdin)
+            curses.nocbreak()
+            self.stdscr.keypad(0)
+            curses.echo()
+            curses.endwin()
 
 
     def do_clear(self):
@@ -351,7 +365,7 @@ class ElectrumGui:
             self.wallet.labels[tx.txid()] = self.str_description
 
         self.show_message(_("Please wait..."), getchar=False)
-        status, msg = self.network.broadcast_transaction(tx)
+        status, msg = self.network.broadcast_transaction_from_non_network_thread(tx)
 
         if status:
             self.show_message(_('Payment sent.'))
@@ -376,8 +390,9 @@ class ElectrumGui:
     def network_dialog(self):
         if not self.network:
             return
-        params = self.network.get_parameters()
-        host, port, protocol, proxy_config, auto_connect = params
+        net_params = self.network.get_parameters()
+        host, port, protocol = net_params.host, net_params.port, net_params.protocol
+        proxy_config, auto_connect = net_params.proxy, net_params.auto_connect
         srv = 'auto-connect' if auto_connect else self.network.default_server
         out = self.run_dialog('Network', [
             {'label':'server', 'type':'str', 'value':srv},
@@ -389,13 +404,13 @@ class ElectrumGui:
                 auto_connect = server == 'auto-connect'
                 if not auto_connect:
                     try:
-                        host, port, protocol = server.split(':')
+                        host, port, protocol = deserialize_server(server)
                     except Exception:
                         self.show_message("Error:" + server + "\nIn doubt, type \"auto-connect\"")
                         return False
             if out.get('server') or out.get('proxy'):
                 proxy = electrum.network.deserialize_proxy(out.get('proxy')) if out.get('proxy') else proxy_config
-                self.network.set_parameters(host, port, protocol, proxy, auto_connect)
+                self.network.set_parameters(NetworkParameters(host, port, protocol, proxy, auto_connect))
 
     def settings_dialog(self):
         fee = str(Decimal(self.config.fee_per_kb()) / COIN)

@@ -1,19 +1,23 @@
+import asyncio
+import aiohttp
+from aiohttp_socks import SocksConnector, SocksVer
 from datetime import datetime
 import inspect
-import requests
 import sys
 import os
 import json
-from threading import Thread
 import time
 import csv
 import decimal
 from decimal import Decimal
+import concurrent.futures
+import traceback
 
 from .bitcoin import COIN
 from .i18n import _
-from .util import PrintError, ThreadJob, make_dir
-
+from .util import PrintError, ThreadJob, make_dir, aiosafe
+from .util import make_aiohttp_session
+from .network import Network
 
 # See https://en.wikipedia.org/wiki/ISO_4217
 CCY_PRECISIONS = {'BHD': 3, 'BIF': 0, 'BYR': 0, 'CLF': 4, 'CLP': 0,
@@ -24,7 +28,6 @@ CCY_PRECISIONS = {'BHD': 3, 'BIF': 0, 'BYR': 0, 'CLF': 4, 'CLP': 0,
                   'VUV': 0, 'XAF': 0, 'XAU': 4, 'XOF': 0, 'XPF': 0,
                   'BTC': 8}
 
-
 class ExchangeBase(PrintError):
 
     def __init__(self, on_quotes, on_history):
@@ -33,34 +36,41 @@ class ExchangeBase(PrintError):
         self.on_quotes = on_quotes
         self.on_history = on_history
 
-    def get_json(self, site, get_string):
+    async def get_raw(self, site, get_string):
         # APIs must have https
         url = ''.join(['https://', site, get_string])
-        response = requests.request('GET', url, headers={'User-Agent' : 'Electrum'}, timeout=10)
-        return response.json()
+        async with make_aiohttp_session(Network.get_instance().proxy) as session:
+            async with session.get(url) as response:
+                return await response.text()
 
-    def get_csv(self, site, get_string):
+    async def get_json(self, site, get_string):
+        # APIs must have https
         url = ''.join(['https://', site, get_string])
-        response = requests.request('GET', url, headers={'User-Agent' : 'Electrum'})
-        reader = csv.DictReader(response.content.decode().split('\n'))
+        async with make_aiohttp_session(Network.get_instance().proxy) as session:
+            async with session.get(url) as response:
+                return await response.json()
+
+    async def get_csv(self, site, get_string):
+        raw = await self.get_raw(site, get_string)
+        reader = csv.DictReader(raw.split('\n'))
         return list(reader)
 
     def name(self):
         return self.__class__.__name__
 
-    def update_safe(self, ccy):
+    @aiosafe
+    async def update_safe(self, ccy):
         try:
             self.print_error("getting fx quotes for", ccy)
-            self.quotes = self.get_rates(ccy)
+            self.quotes = await self.get_rates(ccy)
             self.print_error("received fx quotes")
         except BaseException as e:
             self.print_error("failed fx quotes:", e)
+            self.quotes = {}
         self.on_quotes()
 
     def update(self, ccy):
-        t = Thread(target=self.update_safe, args=(ccy,))
-        t.setDaemon(True)
-        t.start()
+        asyncio.get_event_loop().create_task(self.update_safe(ccy))
 
     def read_historical_rates(self, ccy, cache_dir):
         filename = os.path.join(cache_dir, self.name() + '_'+ ccy)
@@ -79,13 +89,15 @@ class ExchangeBase(PrintError):
             self.on_history()
         return h
 
-    def get_historical_rates_safe(self, ccy, cache_dir):
+    @aiosafe
+    async def get_historical_rates_safe(self, ccy, cache_dir):
         try:
             self.print_error("requesting fx history for", ccy)
-            h = self.request_history(ccy)
+            h = await self.request_history(ccy)
             self.print_error("received fx history for", ccy)
         except BaseException as e:
             self.print_error("failed fx history:", e)
+            #traceback.print_exc()
             return
         filename = os.path.join(cache_dir, self.name() + '_' + ccy)
         with open(filename, 'w', encoding='utf-8') as f:
@@ -101,9 +113,7 @@ class ExchangeBase(PrintError):
         if h is None:
             h = self.read_historical_rates(ccy, cache_dir)
         if h is None or h['timestamp'] < time.time() - 24*3600:
-            t = Thread(target=self.get_historical_rates_safe, args=(ccy, cache_dir))
-            t.setDaemon(True)
-            t.start()
+            asyncio.get_event_loop().create_task(self.get_historical_rates_safe(ccy, cache_dir))
 
     def history_ccys(self):
         return []
@@ -129,8 +139,8 @@ def _to_fiat(self, btc, ccy, res):
 
 class Bisq(ExchangeBase):
 
-    def get_rates(self, ccy):
-        json = self.get_json('markets.bisq.network', '/api/ticker?market=koto_btc')
+    async def get_rates(self, ccy):
+        json = await self.get_json('markets.bisq.network', '/api/ticker?market=koto_btc')
         btc = Decimal(json[0]['last'])
 
         res = {}
@@ -144,8 +154,8 @@ class Bisq(ExchangeBase):
 
 class SafeTrade(ExchangeBase):
 
-    def get_rates(self, ccy):
-        json = self.get_json('safe.trade', '/api/v2/tickers/kotobtc')
+    async def get_rates(self, ccy):
+        json = await self.get_json('safe.trade', '/api/v2/tickers/kotobtc')
         btc = Decimal(json['ticker']['last'])
 
         res = {}
@@ -181,7 +191,6 @@ def dictinvert(d):
     return inv
 
 def get_exchanges_and_currencies():
-    import os, json
     path = os.path.join(os.path.dirname(__file__), 'currencies.json')
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -226,13 +235,20 @@ class FxThread(ThreadJob):
     def __init__(self, config, network):
         self.config = config
         self.network = network
+        if self.network:
+            self.network.register_callback(self.set_proxy, ['proxy_set'])
         self.ccy = self.get_currency()
         self.history_used_spot = False
         self.ccy_combo = None
         self.hist_checkbox = None
         self.cache_dir = os.path.join(config.path, 'cache')
+        self.trigger = asyncio.Event()
+        self.trigger.set()
         self.set_exchange(self.config_exchange())
         make_dir(self.cache_dir)
+
+    def set_proxy(self, trigger_name, *args):
+        self.trigger.set()
 
     def get_currencies(self, h):
         d = get_exchanges_by_ccy(h)
@@ -251,20 +267,26 @@ class FxThread(ThreadJob):
             rounded_amount = amount
         return fmt_str.format(rounded_amount)
 
-    def run(self):
-        # This runs from the plugins thread which catches exceptions
-        if self.is_enabled():
-            if self.timeout ==0 and self.show_history():
-                self.exchange.get_historical_rates(self.ccy, self.cache_dir)
-            if self.timeout <= time.time():
-                self.timeout = time.time() + 150
+    async def run(self):
+        while True:
+            try:
+                await asyncio.wait_for(self.trigger.wait(), 150)
+            except concurrent.futures.TimeoutError:
+                pass
+            else:
+                self.trigger.clear()
+                if self.is_enabled():
+                    if self.show_history():
+                        self.exchange.get_historical_rates(self.ccy, self.cache_dir)
+            if self.is_enabled():
                 self.exchange.update(self.ccy)
 
     def is_enabled(self):
         return bool(self.config.get('use_exchange_rate'))
 
     def set_enabled(self, b):
-        return self.config.set_key('use_exchange_rate', bool(b))
+        self.config.set_key('use_exchange_rate', bool(b))
+        self.trigger.set()
 
     def get_history_config(self):
         return bool(self.config.get('history_rates'))
@@ -297,7 +319,7 @@ class FxThread(ThreadJob):
     def set_currency(self, ccy):
         self.ccy = ccy
         self.config.set_key('currency', ccy, True)
-        self.timeout = 0 # Because self.ccy changes
+        self.trigger.set()  # Because self.ccy changes
         self.on_quotes()
 
     def set_exchange(self, name):
@@ -308,7 +330,7 @@ class FxThread(ThreadJob):
         self.exchange = class_(self.on_quotes, self.on_history)
         # A new exchange means new fx quotes, initially empty.  Force
         # a quote refresh
-        self.timeout = 0
+        self.trigger.set()
         self.exchange.read_historical_rates(self.ccy, self.cache_dir)
 
     def on_quotes(self):
@@ -319,8 +341,8 @@ class FxThread(ThreadJob):
         if self.network:
             self.network.trigger_callback('on_history')
 
-    def exchange_rate(self):
-        '''Returns None, or the exchange rate as a Decimal'''
+    def exchange_rate(self) -> Decimal:
+        """Returns the exchange rate as a Decimal"""
         rate = self.exchange.quotes.get(self.ccy)
         if rate is None:
             return Decimal('NaN')
