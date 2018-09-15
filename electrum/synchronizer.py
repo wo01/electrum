@@ -121,7 +121,7 @@ class Synchronizer(PrintError):
 
     async def get_transaction(self, tx_hash):
         result = await self.session.send_request('blockchain.transaction.get', [tx_hash])
-        tx = Transaction(result, self.network.get_server_height())
+        tx = Transaction(result, self.wallet.network.get_server_height())
         try:
             tx.deserialize()
         except Exception:
