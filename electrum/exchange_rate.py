@@ -127,13 +127,13 @@ class ExchangeBase(PrintError):
         return sorted([str(a) for (a, b) in rates.items() if b is not None and len(a)==3])
 
 
-def _to_fiat(self, btc, ccy, res):
+async def _to_fiat(self, btc, ccy, res):
     if ccy == 'JPY':
-        ba_json = self.get_json('apiv2.bitcoinaverage.com', '/indices/global/ticker/BTCJPY')
+        ba_json = await self.get_json('apiv2.bitcoinaverage.com', '/indices/global/ticker/BTCJPY')
         btcjpy = Decimal(ba_json['last'])
         res['JPY'] = btcjpy * btc
     elif ccy == 'USD':
-        ba_json = self.get_json('apiv2.bitcoinaverage.com', '/indices/global/ticker/BTCUSD')
+        ba_json = await self.get_json('apiv2.bitcoinaverage.com', '/indices/global/ticker/BTCUSD')
         btcusd = Decimal(ba_json['last'])
         res['USD'] = btcusd * btc
 
@@ -163,7 +163,7 @@ class SafeTrade(ExchangeBase):
         if ccy == 'BTC':
             res['BTC'] = btc
         else:
-            _to_fiat(self, btc, ccy, res)
+            await _to_fiat(self, btc, ccy, res)
 
         return res
 
