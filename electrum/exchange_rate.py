@@ -148,7 +148,7 @@ class Bisq(ExchangeBase):
         if ccy == 'BTC':
             res['BTC'] = btc
         else:
-            _to_fiat(self, btc, ccy, res)
+            await _to_fiat(self, btc, ccy, res)
 
         return res
 
@@ -178,7 +178,7 @@ class Fixed100Sat(ExchangeBase):
         if ccy == 'BTC':
             res['BTC'] = btc
         else:
-            _to_fiat(self, btc, ccy, res)
+            await _to_fiat(self, btc, ccy, res)
 
         return res
 
