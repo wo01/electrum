@@ -172,7 +172,7 @@ class Fixed100Sat(ExchangeBase):
     def name(self):
         return "Fixed (100 sat)"
 
-    def get_rates(self, ccy):
+    async def get_rates(self, ccy):
         btc = Decimal('1e-6')
         res = {}
         if ccy == 'BTC':
