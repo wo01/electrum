@@ -75,7 +75,7 @@ class TrezorPlugin(HW_PluginBase):
     libraries_URL = 'https://github.com/trezor/python-trezor'
     minimum_firmware = (1, 7, 0)
     keystore_class = TrezorKeyStore
-    minimum_library = (0, 9, 0)
+    minimum_library = (0, 10, 2)
     SUPPORTED_XTYPES = ('standard', 'p2wpkh-p2sh', 'p2wpkh', 'p2wsh-p2sh', 'p2wsh')
 
     MAX_LABEL_LEN = 32
@@ -311,7 +311,7 @@ class TrezorPlugin(HW_PluginBase):
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, True)
         outputs = self.tx_outputs(keystore.get_derivation(), tx)
-        signatures = client.sign_tx(self.get_coin_name(), inputs, outputs, lock_time=tx.locktime, overwintered=True)[0]
+        signatures = client.sign_tx(self.get_coin_name(), inputs, outputs, lock_time=tx.locktime, expiry=tx.expiryHeight, version=tx.version, overwintered=tx.overwintered)[0]
         signatures = [(bh2u(x) + '01') for x in signatures]
         tx.update_signatures(signatures)
 
