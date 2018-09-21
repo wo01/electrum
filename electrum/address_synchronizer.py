@@ -530,8 +530,7 @@ class AddressSynchronizer(PrintError):
             delta = tx_deltas[tx_hash]
             tx_mined_status = self.get_tx_height(tx_hash)
             history.append((tx_hash, tx_mined_status, delta))
-        history.sort(key = lambda x: self.get_txpos(x[0]))
-        history.reverse()
+        history.sort(key = lambda x: self.get_txpos(x[0]), reverse=True)
         # 3. add balance
         c, u, x = self.get_balance(domain)
         balance = c + u + x
@@ -646,6 +645,8 @@ class AddressSynchronizer(PrintError):
     def set_up_to_date(self, up_to_date):
         with self.lock:
             self.up_to_date = up_to_date
+        if self.network:
+            self.network.notify('status')
         if up_to_date:
             self.save_transactions(write=True)
             # if the verifier is also up to date, persist that too;

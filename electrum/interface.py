@@ -115,10 +115,11 @@ class ErrorParsingSSLCert(Exception): pass
 class ErrorGettingSSLCertFromServer(Exception): pass
 
 
-
 def deserialize_server(server_str: str) -> Tuple[str, str, str]:
     # host might be IPv6 address, hence do rsplit:
     host, port, protocol = str(server_str).rsplit(':', 2)
+    if not host:
+        raise ValueError('host must not be empty')
     if protocol not in ('s', 't'):
         raise ValueError('invalid network protocol: {}'.format(protocol))
     int(port)  # Throw if cannot be converted to int
@@ -368,14 +369,15 @@ class Interface(PrintError):
             await self.session.send_request('server.ping')
 
     def close(self):
-        self.fut.cancel()
-        asyncio.get_event_loop().create_task(self.group.cancel_remaining())
+        async def job():
+            self.fut.cancel()
+            await self.group.cancel_remaining()
+        asyncio.run_coroutine_threadsafe(job(), self.network.asyncio_loop)
 
     async def run_fetch_blocks(self):
         header_queue = asyncio.Queue()
         await self.session.subscribe('blockchain.headers.subscribe', [], header_queue)
         while True:
-            self.network.notify('updated')
             item = await header_queue.get()
             raw_header = item[0]
             height = raw_header['height']
@@ -385,16 +387,22 @@ class Interface(PrintError):
             if self.tip < constants.net.max_checkpoint():
                 raise GracefulDisconnect('server tip below max checkpoint')
             self.mark_ready()
-            async with self.network.bhi_lock:
-                if self.blockchain.height() >= height and self.blockchain.check_header(header):
-                    # another interface amended the blockchain
-                    self.print_error("skipping header", height)
-                    continue
-                _, height = await self.step(height, header)
-                # in the simple case, height == self.tip+1
-                if height <= self.tip:
-                    await self.sync_until(height)
+            await self._process_header_at_tip()
+            self.network.trigger_callback('network_updated')
             self.network.switch_lagging_interface()
+
+    async def _process_header_at_tip(self):
+        height, header = self.tip, self.tip_header
+        async with self.network.bhi_lock:
+            if self.blockchain.height() >= height and self.blockchain.check_header(header):
+                # another interface amended the blockchain
+                self.print_error("skipping header", height)
+                return
+            _, height = await self.step(height, header)
+            # in the simple case, height == self.tip+1
+            if height <= self.tip:
+                await self.sync_until(height)
+        self.network.trigger_callback('blockchain_updated')
 
     async def sync_until(self, height, next_height=None):
         if next_height is None:
@@ -406,10 +414,10 @@ class Interface(PrintError):
                 could_connect, num_headers = await self.request_chunk(height, next_height)
                 if not could_connect:
                     if height <= constants.net.max_checkpoint():
-                        raise Exception('server chain conflicts with checkpoints or genesis')
+                        raise GracefulDisconnect('server chain conflicts with checkpoints or genesis')
                     last, height = await self.step(height)
                     continue
-                self.network.notify('updated')
+                self.network.trigger_callback('network_updated')
                 height = (height // 2016 * 2016) + num_headers
                 assert height <= next_height+1, (height, self.tip)
                 last = 'catchup'
@@ -502,11 +510,14 @@ class Interface(PrintError):
             # is assumed to be expensive; especially as forks below the max
             # checkpoint are ignored.
             self.print_error("new fork at bad height {}. conflict!!".format(bad))
+            assert self.blockchain != branch
             ismocking = type(branch) is dict
             if ismocking:
                 self.print_error("TODO replace blockchain")
                 return 'fork_conflict', height
             self.print_error('forkpoint conflicts with existing fork', branch.path())
+            self._raise_if_fork_conflicts_with_default_server(branch)
+            self._disconnect_from_interfaces_on_conflicting_blockchain(branch)
             branch.write(b'', 0)
             branch.save_header(bad_header)
             self.blockchain = branch
@@ -523,6 +534,21 @@ class Interface(PrintError):
             assert b.forkpoint == bad
             return 'fork_noconflict', height
 
+    def _raise_if_fork_conflicts_with_default_server(self, chain_to_delete: Blockchain) -> None:
+        main_interface = self.network.interface
+        if not main_interface: return
+        if main_interface == self: return
+        chain_of_default_server = main_interface.blockchain
+        if not chain_of_default_server: return
+        if chain_to_delete == chain_of_default_server:
+            raise GracefulDisconnect('refusing to overwrite blockchain of default server')
+
+    def _disconnect_from_interfaces_on_conflicting_blockchain(self, chain: Blockchain) -> None:
+        ifaces = self.network.disconnect_from_interfaces_on_given_blockchain(chain)
+        if not ifaces: return
+        servers = [interface.server for interface in ifaces]
+        self.print_error("forcing disconnect of other interfaces: {}".format(servers))
+
     async def _search_headers_backwards(self, height, header):
         async def iterate():
             nonlocal height, header
@@ -536,7 +562,7 @@ class Interface(PrintError):
             if chain or can_connect:
                 return False
             if checkp:
-                raise Exception("server chain conflicts with checkpoints")
+                raise GracefulDisconnect("server chain conflicts with checkpoints")
             return True
 
         bad, bad_header = height, header

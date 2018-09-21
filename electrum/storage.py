@@ -29,7 +29,7 @@ import json
 import copy
 import re
 import stat
-import hmac, hashlib
+import hashlib
 import base64
 import zlib
 from collections import defaultdict
@@ -54,7 +54,7 @@ def multisig_type(wallet_type):
     otherwise return None.'''
     if not wallet_type:
         return None
-    match = re.match('(\d+)of(\d+)', wallet_type)
+    match = re.match(r'(\d+)of(\d+)', wallet_type)
     if match:
         match = [int(x) for x in match.group(1, 2)]
     return match
@@ -73,7 +73,7 @@ class JsonDB(PrintError):
     def __init__(self, path):
         self.db_lock = threading.RLock()
         self.data = {}
-        self.path = path
+        self.path = os.path.normcase(os.path.abspath(path))
         self.modified = False
 
     def get(self, key, default=None):
@@ -142,8 +142,8 @@ class JsonDB(PrintError):
 class WalletStorage(JsonDB):
 
     def __init__(self, path, manual_upgrades=False):
-        self.print_error("wallet path", path)
         JsonDB.__init__(self, path)
+        self.print_error("wallet path", path)
         self.manual_upgrades = manual_upgrades
         self.pubkey = None
         if self.file_exists():

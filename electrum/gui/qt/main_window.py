@@ -107,6 +107,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.setup_exception_hook()
 
         self.network = gui_object.daemon.network
+        self.wallet = wallet
         self.fx = gui_object.daemon.fx
         self.invoices = wallet.invoices
         self.contacts = wallet.contacts
@@ -188,7 +189,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         # network callbacks
         if self.network:
             self.network_signal.connect(self.on_network_qt)
-            interests = ['updated', 'new_transaction', 'status',
+            interests = ['wallet_updated', 'network_updated', 'blockchain_updated',
+                         'new_transaction', 'status',
                          'banner', 'verified', 'fee', 'fee_histogram']
             # To avoid leaking references to "self" that prevent the
             # window from being GC-ed when closed, callbacks should be
@@ -295,10 +297,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show_error(str(exc_info[1]))
 
     def on_network(self, event, *args):
-        if event == 'updated':
-            self.need_update.set()
+        if event == 'wallet_updated':
+            wallet = args[0]
+            if wallet == self.wallet:
+                self.need_update.set()
+        elif event == 'network_updated':
             self.gui_object.network_updated_signal_obj.network_updated_signal \
                 .emit(event, args)
+            self.network_signal.emit('status', None)
+        elif event == 'blockchain_updated':
+            # to update number of confirmations in history
+            self.need_update.set()
         elif event == 'new_transaction':
             wallet, tx = args
             if wallet == self.wallet:
@@ -352,7 +361,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
     @profiler
     def load_wallet(self, wallet):
         wallet.thread = TaskThread(self, self.on_error)
-        self.wallet = wallet
         self.update_recently_visited(wallet.storage.path)
         # update(==init) all tabs; expensive for large wallets..
         # so delay it somewhat, hence __init__ can finish and the window can appear sooner
@@ -444,6 +452,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         if filename in recent:
             recent.remove(filename)
         recent.insert(0, filename)
+        recent = [path for path in recent if os.path.exists(path)]
         recent = recent[:5]
         self.config.set_key('recently_open', recent)
         self.recently_visited_menu.clear()
@@ -765,7 +774,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.tray.setToolTip("%s (%s)" % (text, self.wallet.basename()))
         self.balance_label.setText(text)
         self.status_button.setIcon( icon )
-
 
     def update_wallet(self):
         self.update_status()
