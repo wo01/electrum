@@ -1,5 +1,8 @@
-import tty, sys
-import curses, datetime, locale
+import tty
+import sys
+import curses
+import datetime
+import locale
 from decimal import Decimal
 import getpass
 
@@ -13,7 +16,6 @@ from electrum.network import NetworkParameters
 from electrum.interface import deserialize_server
 
 _ = lambda x:x
-
 
 
 class ElectrumGui:
@@ -365,7 +367,8 @@ class ElectrumGui:
             self.wallet.labels[tx.txid()] = self.str_description
 
         self.show_message(_("Please wait..."), getchar=False)
-        status, msg = self.network.broadcast_transaction_from_non_network_thread(tx)
+        status, msg = self.network.run_from_another_thread(
+            self.network.broadcast_transaction(tx))
 
         if status:
             self.show_message(_('Payment sent.'))
@@ -410,7 +413,8 @@ class ElectrumGui:
                         return False
             if out.get('server') or out.get('proxy'):
                 proxy = electrum.network.deserialize_proxy(out.get('proxy')) if out.get('proxy') else proxy_config
-                self.network.set_parameters(NetworkParameters(host, port, protocol, proxy, auto_connect))
+                net_params = NetworkParameters(host, port, protocol, proxy, auto_connect)
+                self.network.run_from_another_thread(self.network.set_parameters(net_params))
 
     def settings_dialog(self):
         fee = str(Decimal(self.config.fee_per_kb()) / COIN)
