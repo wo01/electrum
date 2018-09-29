@@ -143,9 +143,8 @@ def sweep(privkeys, network, config, recipient, wallet, fee=None, imax=100):
     locktime = network.get_local_height()
 
     tx = Transaction.from_io(inputs, outputs, network.get_server_height(), locktime=locktime)
-    tx.BIP_LI01_sort()
-    tx.set_rbf(False)
-    tx.sign(keypairs, wallet)
+    tx.set_rbf(True)
+    tx.sign(keypairs)
     return tx
 
 
@@ -608,8 +607,6 @@ class Abstract_Wallet(AddressSynchronizer):
             outputs[i_max] = outputs[i_max]._replace(value=amount)
             tx = Transaction.from_io(inputs, outputs[:], self.network.get_server_height())
 
-        # Sort the inputs and outputs deterministically
-        tx.BIP_LI01_sort()
         # Timelock tx to current height.
         tx.locktime = self.get_local_height()
         run_hook('make_unsigned_transaction', self, tx)
@@ -714,7 +711,6 @@ class Abstract_Wallet(AddressSynchronizer):
             raise CannotBumpFee(_('Cannot bump fee') + ': ' + _('could not find suitable outputs'))
         locktime = self.get_local_height()
         tx_new = Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
-        tx_new.BIP_LI01_sort()
         return tx_new
 
     def cpfp(self, tx, fee):
@@ -733,7 +729,6 @@ class Abstract_Wallet(AddressSynchronizer):
         inputs = [item]
         outputs = [TxOutput(TYPE_ADDRESS, address, value - fee)]
         locktime = self.get_local_height()
-        # note: no need to call tx.BIP_LI01_sort() here - single input/output
         return Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
 
     def add_input_sig_info(self, txin, address):
