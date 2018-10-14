@@ -121,9 +121,12 @@ def get_rpc_credentials(config):
 
 class Daemon(DaemonThread):
 
-    def __init__(self, config, fd):
+    def __init__(self, config, fd=None, *, listen_jsonrpc=True):
         DaemonThread.__init__(self)
         self.config = config
+        if fd is None and listen_jsonrpc:
+            fd, server = get_fd_or_server(config)
+            if fd is None: raise Exception('failed to lock daemon; already running?')
         if config.get('offline'):
             self.network = None
         else:
@@ -134,7 +137,10 @@ class Daemon(DaemonThread):
         self.gui = None
         self.wallets = {}  # type: Dict[str, Abstract_Wallet]
         # Setup JSONRPC server
-        self.init_server(config, fd)
+        self.server = None
+        if listen_jsonrpc:
+            self.init_server(config, fd)
+        self.start()
 
     def init_server(self, config, fd):
         host = config.get('rpchost', '127.0.0.1')
@@ -164,7 +170,7 @@ class Daemon(DaemonThread):
         return True
 
     def run_daemon(self, config_options):
-        asyncio.set_event_loop(self.network.asyncio_loop)
+        asyncio.set_event_loop(self.network.asyncio_loop)  # FIXME what if self.network is None?
         config = SimpleConfig(config_options)
         sub = config.get('subcommand')
         assert sub in [None, 'start', 'stop', 'status', 'load_wallet', 'close_wallet']
@@ -258,6 +264,7 @@ class Daemon(DaemonThread):
         wallet.stop_threads()
 
     def run_cmdline(self, config_options):
+        asyncio.set_event_loop(self.network.asyncio_loop)  # FIXME what if self.network is None?
         password = config_options.get('password')
         new_password = config_options.get('new_password')
         config = SimpleConfig(config_options)

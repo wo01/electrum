@@ -28,13 +28,13 @@ import ssl
 import sys
 import traceback
 import asyncio
-from typing import Tuple, Union
+from typing import Tuple, Union, List
 from collections import defaultdict
 
 import aiorpcx
 from aiorpcx import ClientSession, Notification
 
-from .util import PrintError, aiosafe, bfh, AIOSafeSilentException, SilentTaskGroup
+from .util import PrintError, ignore_exceptions, log_exceptions, bfh, SilentTaskGroup
 from . import util
 from . import x509
 from . import pem
@@ -57,7 +57,7 @@ class NotificationSession(ClientSession):
         # will catch the exception, count errors, and at some point disconnect
         if isinstance(request, Notification):
             params, result = request.args[:-1], request.args[-1]
-            key = self.get_index(request.method, params)
+            key = self.get_hashable_key_for_rpc_call(request.method, params)
             if key in self.subscriptions:
                 self.cache[key] = result
                 for queue in self.subscriptions[key]:
@@ -78,10 +78,10 @@ class NotificationSession(ClientSession):
             except asyncio.TimeoutError as e:
                 raise RequestTimedOut('request timed out: {}'.format(args)) from e
 
-    async def subscribe(self, method, params, queue):
+    async def subscribe(self, method: str, params: List, queue: asyncio.Queue):
         # note: until the cache is written for the first time,
         # each 'subscribe' call might make a request on the network.
-        key = self.get_index(method, params)
+        key = self.get_hashable_key_for_rpc_call(method, params)
         self.subscriptions[key].append(queue)
         if key in self.cache:
             result = self.cache[key]
@@ -99,7 +99,7 @@ class NotificationSession(ClientSession):
                 v.remove(queue)
 
     @classmethod
-    def get_index(cls, method, params):
+    def get_hashable_key_for_rpc_call(cls, method, params):
         """Hashable index for subscriptions and cache"""
         return str(method) + repr(params)
 
@@ -141,14 +141,11 @@ class Interface(PrintError):
         self._requested_chunks = set()
         self.network = network
         self._set_proxy(proxy)
-        self.session = None
+        self.session = None  # type: NotificationSession
 
         self.tip_header = None
         self.tip = 0
 
-        # note that an interface dying MUST NOT kill the whole network,
-        # hence exceptions raised by "run" need to be caught not to kill
-        # main_taskgroup! the aiosafe decorator does this.
         asyncio.run_coroutine_threadsafe(
             self.network.main_taskgroup.spawn(self.run()), self.network.asyncio_loop)
         self.group = SilentTaskGroup()
@@ -249,7 +246,8 @@ class Interface(PrintError):
                 self.got_disconnected.set_result(1)
         return wrapper_func
 
-    @aiosafe
+    @ignore_exceptions  # do not kill main_taskgroup
+    @log_exceptions
     @handle_disconnect
     async def run(self):
         try:
@@ -384,6 +382,7 @@ class Interface(PrintError):
             self.mark_ready()
             await self._process_header_at_tip()
             self.network.trigger_callback('network_updated')
+            await self.network.switch_unwanted_fork_interface()
             await self.network.switch_lagging_interface()
 
     async def _process_header_at_tip(self):

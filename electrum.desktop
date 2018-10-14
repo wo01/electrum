@@ -3,7 +3,7 @@
 
 [Desktop Entry]
 Comment=Lightweight Koto Client
-Exec=sh -c "PATH=\"\\$HOME/.local/bin:\\$PATH\" electrum %u"
+Exec=sh -c "PATH=\"\\$HOME/.local/bin:\\$PATH\"; electrum %u"
 GenericName[en_US]=Koto Wallet
 GenericName=Koto Wallet
 Icon=electrum
@@ -17,5 +17,5 @@ MimeType=x-scheme-handler/koto;
 Actions=Testnet;
 
 [Desktop Action Testnet]
-Exec=sh -c "PATH=\"\\$HOME/.local/bin:\\$PATH\" electrum --testnet %u"
+Exec=sh -c "PATH=\"\\$HOME/.local/bin:\\$PATH\"; electrum --testnet %u"
 Name=Testnet mode

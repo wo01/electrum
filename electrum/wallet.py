@@ -87,7 +87,7 @@ def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
         scripthash = bitcoin.script_to_scripthash(script)
         address = '(pubkey)'
 
-    u = network.listunspent_for_scripthash(scripthash)
+    u = network.run_from_another_thread(network.listunspent_for_scripthash(scripthash))
     for item in u:
         if len(inputs) >= imax:
             break
@@ -167,7 +167,6 @@ class Abstract_Wallet(AddressSynchronizer):
     def __init__(self, storage):
         AddressSynchronizer.__init__(self, storage)
 
-        self.electrum_version = ELECTRUM_VERSION
         # saved fields
         self.use_change            = storage.get('use_change', True)
         self.multiple_change       = storage.get('multiple_change', False)
@@ -412,7 +411,8 @@ class Abstract_Wallet(AddressSynchronizer):
             if show_addresses:
                 tx = self.transactions.get(tx_hash)
                 item['inputs'] = list(map(lambda x: dict((k, x[k]) for k in ('prevout_hash', 'prevout_n')), tx.inputs()))
-                item['outputs'] = list(map(lambda x:{'address':x[0], 'value':Satoshis(x[1])}, tx.get_outputs()))
+                item['outputs'] = list(map(lambda x:{'address':x.address, 'value':Satoshis(x.value)},
+                                           tx.get_outputs_for_UI()))
             # value may be None if wallet is not fully synchronized
             if value is None:
                 continue

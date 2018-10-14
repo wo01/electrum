@@ -57,6 +57,7 @@ from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
 from electrum.transaction import Transaction, TxOutput
 from electrum.address_synchronizer import AddTransactionException
 from electrum.wallet import Multisig_Wallet, CannotBumpFee
+from electrum.version import ELECTRUM_VERSION
 
 from .exception_window import Exception_Hook
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit, FeerateEdit
@@ -179,6 +180,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         QShortcut(QKeySequence("Ctrl+W"), self, self.close)
         QShortcut(QKeySequence("Ctrl+Q"), self, self.close)
         QShortcut(QKeySequence("Ctrl+R"), self, self.update_wallet)
+        QShortcut(QKeySequence("F5"), self, self.update_wallet)
         QShortcut(QKeySequence("Ctrl+PgUp"), self, lambda: wrtabs.setCurrentIndex((wrtabs.currentIndex() - 1)%wrtabs.count()))
         QShortcut(QKeySequence("Ctrl+PgDown"), self, lambda: wrtabs.setCurrentIndex((wrtabs.currentIndex() + 1)%wrtabs.count()))
 
@@ -398,7 +400,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
     def watching_only_changed(self):
         name = "Electrum for KotoTestnet" if constants.net.TESTNET else "Electrum for Koto"
-        title = '%s %s  -  %s' % (name, self.wallet.electrum_version,
+        title = '%s %s  -  %s' % (name, ELECTRUM_VERSION,
                                         self.wallet.basename())
         extra = [self.wallet.storage.get('wallet_type', '?')]
         if self.wallet.is_watching_only():
@@ -583,7 +585,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
 
     def show_about(self):
         QMessageBox.about(self, "Electrum",
-                          (_("Version")+" %s" % self.wallet.electrum_version + "\n\n" +
+                          (_("Version")+" %s" % ELECTRUM_VERSION + "\n\n" +
                            _("Electrum's focus is speed, with low resource usage and simplifying Bitcoin.") + " " +
                            _("You do not need to perform regular backups, because your wallet can be "
                               "recovered from a secret phrase that you can memorize or write on paper.") + " " +
@@ -686,7 +688,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         return text
 
     def format_fee_rate(self, fee_rate):
-        return format_fee_satoshis(fee_rate/1000, self.num_zeros) + ' sat/byte'
+        return format_fee_satoshis(fee_rate/1000, num_zeros=self.num_zeros) + ' sat/byte'
 
     def get_decimal_point(self):
         return self.decimal_point
@@ -742,6 +744,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         elif self.network.is_connected():
             server_height = self.network.get_server_height()
             server_lag = self.network.get_local_height() - server_height
+            fork_str = "_fork" if len(self.network.get_blockchains())>1 else ""
             # Server height can be 0 after switching to a new server
             # until we get a headers subscription request response.
             # Display the synchronizing message in that case.
@@ -750,7 +753,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                 icon = QIcon(":icons/status_waiting.png")
             elif server_lag > 1:
                 text = _("Server is lagging ({} blocks)").format(server_lag)
-                icon = QIcon(":icons/status_lagging.png")
+                icon = QIcon(":icons/status_lagging%s.png"%fork_str)
             else:
                 c, u, x = self.wallet.get_balance()
                 text =  _("Balance" ) + ": %s "%(self.format_amount_and_units(c))
@@ -764,9 +767,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                     text += self.fx.get_fiat_status_text(c + u + x,
                         self.base_unit(), self.get_decimal_point()) or ''
                 if not self.network.proxy:
-                    icon = QIcon(":icons/status_connected.png")
+                    icon = QIcon(":icons/status_connected%s.png"%fork_str)
                 else:
-                    icon = QIcon(":icons/status_connected_proxy.png")
+                    icon = QIcon(":icons/status_connected_proxy%s.png"%fork_str)
         else:
             if self.network.proxy:
                 text = "{} ({})".format(_("Not connected"), _("proxy enabled"))
@@ -1542,8 +1545,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             tx = self.wallet.make_unsigned_transaction(
                 coins, outputs, self.config, fixed_fee=fee_estimator,
                 is_sweep=is_sweep)
-        except NotEnoughFunds:
-            self.show_message(_("Insufficient funds"))
+        except (NotEnoughFunds, NoDynamicFeeEstimates) as e:
+            self.show_message(str(e))
             return
         except BaseException as e:
             traceback.print_exc(file=sys.stdout)
@@ -1638,8 +1641,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             if pr and pr.has_expired():
                 self.payment_request = None
                 return False, _("Payment request has expired")
-            status, msg = self.network.run_from_another_thread(
-                self.network.broadcast_transaction(tx))
+            try:
+                self.network.run_from_another_thread(self.network.broadcast_transaction(tx))
+            except Exception as e:
+                status, msg = False, repr(e)
+            else:
+                status, msg = True, tx.txid()
             if pr and status is True:
                 self.invoices.set_paid(pr, tx.txid())
                 self.invoices.save()
@@ -1962,7 +1969,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         sb.setFixedHeight(35)
         qtVersion = qVersion()
 
-        self.balance_label = QLabel("")
+        self.balance_label = QLabel("Loading wallet...")
         self.balance_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.balance_label.setStyleSheet("""QLabel { padding: 0 }""")
         sb.addWidget(self.balance_label)
@@ -2584,7 +2591,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.spend_max()
             self.payto_e.setFrozen(True)
             self.amount_e.setFrozen(True)
-        except BaseException as e:
+        except Exception as e:  # FIXME too broad...
             self.show_message(str(e))
             return
         self.warn_if_watching_only()

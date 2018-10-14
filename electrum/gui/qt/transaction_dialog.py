@@ -178,6 +178,10 @@ class TxDialog(QDialog, MessageBoxMixin):
             except ValueError:
                 pass  # was not in list already
 
+    def reject(self):
+        # Override escape-key to close normally (and invoke closeEvent)
+        self.close()
+
     def show_qr(self):
         text = bfh(str(self.tx))
         text = base_encode(text, base=43)
@@ -319,7 +323,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         o_text.setFont(QFont(MONOSPACE_FONT))
         o_text.setReadOnly(True)
         cursor = o_text.textCursor()
-        for addr, v in self.tx.get_outputs():
+        for o in self.tx.get_outputs_for_UI():
+            addr, v = o.address, o.value
             cursor.insertText(addr, text_format(addr))
             if v is not None:
                 cursor.insertText('\t', ext)
