@@ -55,6 +55,7 @@ SEQUENCE_HASH_PERSON = b'ZcashSequencHash'
 OUTPUTS_HASH_PERSON = b'ZcashOutputsHash'
 JOINSPLITS_HASH_PERSON = b'ZcashJSplitsHash'
 OVERWINTER_HASH_PERSON = b'ZcashSigHash\x19\x1b\xa8\x5b'
+SAPLING_HASH_PERSON = b'ZcashSigHash\xbb\x09\xb8\x76'
 
 NO_SIGNATURE = 'ff'
 PARTIAL_TXN_HEADER_MAGIC = b'EPTF\xff'
@@ -762,10 +763,16 @@ class Transaction:
             self.versionGroupId = 0
             self.expiryHeight = 0
             self._joinsplitsraw = None
-        else:
+        elif height < constants.net.SAPLING_HEIGHT:
             self.version = 3
             self.overwintered = True
             self.versionGroupId = 0x2E7D970
+            self.expiryHeight = height + 20
+            self._joinsplitsraw = b'\x00'
+        else:
+            self.version = 4
+            self.overwintered = True
+            self.versionGroupId = 0x9023E50A
             self.expiryHeight = height + 20
             self._joinsplitsraw = b'\x00'
         self.locktime = 0

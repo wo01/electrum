@@ -107,6 +107,7 @@ class KotoMainnet(BitcoinMainnet):
     ADDRTYPE_P2SH = [0x18, 0x3b]
     SEGWIT_HRP = "koto"
     OVERWINTER_HEIGHT = 335600
+    SAPLING_HEIGHT = 9999999
     GENESIS = "6d424c350729ae633275d51dc3496e16cd1b1d195c164da00f39c499a2e9959e"
     BIP44_COIN_TYPE = 510
 
@@ -115,6 +116,7 @@ class KotoTestnet(BitcoinTestnet):
     ADDRTYPE_P2SH = [0x18, 0x39]
     SEGWIT_HRP = "toko"
     OVERWINTER_HEIGHT = 93500
+    SAPLING_HEIGHT = 9999999
     GENESIS = "bf84afbde20c2d213b68b231ddb585ab616ef7567226820f00d9b397d774d2f0"
 
 class KotoRegtest(KotoTestnet):
