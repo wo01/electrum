@@ -123,7 +123,7 @@ def sweep_preparations(privkeys, network: 'Network', imax=100):
     return inputs, keypairs
 
 
-def sweep(privkeys, network: 'Network', config: 'SimpleConfig', recipient, wallet, fee=None, imax=100):
+def sweep(privkeys, network: 'Network', config: 'SimpleConfig', recipient, fee=None, imax=100):
     inputs, keypairs = sweep_preparations(privkeys, network, imax)
     total = sum(i.get('value') for i in inputs)
     if fee is None:
