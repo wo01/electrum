@@ -30,11 +30,17 @@ from functools import partial
 
 from . import bitcoin
 from . import keystore
+from .bip32 import is_bip32_derivation, xpub_type
 from .keystore import bip44_derivation, purpose48_derivation
-from .wallet import Imported_Wallet, Standard_Wallet, Multisig_Wallet, wallet_types, Wallet
-from .storage import STO_EV_USER_PW, STO_EV_XPUB_PW, get_derivation_used_for_hw_device_encryption
+from .wallet import (Imported_Wallet, Standard_Wallet, Multisig_Wallet,
+                     wallet_types, Wallet, Abstract_Wallet)
+from .storage import (WalletStorage, STO_EV_USER_PW, STO_EV_XPUB_PW,
+                      get_derivation_used_for_hw_device_encryption)
 from .i18n import _
 from .util import UserCancelled, InvalidPassword, WalletFileException
+from .simple_config import SimpleConfig
+from .plugin import Plugins
+
 
 # hardware device setup purpose
 HWD_SETUP_NEW_WALLET, HWD_SETUP_DECRYPT_WALLET = range(0, 2)
@@ -48,12 +54,12 @@ class GoBack(Exception): pass
 
 class BaseWizard(object):
 
-    def __init__(self, config, plugins, storage):
+    def __init__(self, config: SimpleConfig, plugins: Plugins, storage: WalletStorage):
         super(BaseWizard, self).__init__()
         self.config = config
         self.plugins = plugins
         self.storage = storage
-        self.wallet = None
+        self.wallet = None  # type: Abstract_Wallet
         self.stack = []
         self.plugin = None
         self.keystores = []
@@ -335,7 +341,7 @@ class BaseWizard(object):
             try:
                 self.choice_and_line_dialog(
                     run_next=f, title=_('Script type and Derivation path'), message1=message1,
-                    message2=message2, choices=choices, test_text=bitcoin.is_bip32_derivation)
+                    message2=message2, choices=choices, test_text=is_bip32_derivation)
                 return
             except ScriptTypeNotSupported as e:
                 self.show_error(e)
@@ -415,7 +421,6 @@ class BaseWizard(object):
     def on_keystore(self, k):
         has_xpub = isinstance(k, keystore.Xpub)
         if has_xpub:
-            from .bitcoin import xpub_type
             t1 = xpub_type(k.xpub)
         if self.wallet_type == 'standard':
             if has_xpub and t1 not in ['standard', 'p2wpkh', 'p2wpkh-p2sh']:

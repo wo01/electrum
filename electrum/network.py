@@ -164,12 +164,12 @@ class Network(PrintError):
     """
     verbosity_filter = 'n'
 
-    def __init__(self, config=None):
+    def __init__(self, config: SimpleConfig=None):
         global INSTANCE
         INSTANCE = self
         if config is None:
             config = {}  # Do not use mutables as default values!
-        self.config = SimpleConfig(config) if isinstance(config, dict) else config
+        self.config = SimpleConfig(config) if isinstance(config, dict) else config  # type: SimpleConfig
         self.num_server = 10 if not self.config.get('oneserver') else 0
         blockchain.blockchains = blockchain.read_blockchains(self.config)
         self.print_error("blockchains", list(blockchain.blockchains))
@@ -201,7 +201,7 @@ class Network(PrintError):
 
         self.banner = ''
         self.donation_address = ''
-        self.relay_fee = None
+        self.relay_fee = None  # type: Optional[int]
         # callbacks set by the GUI
         self.callbacks = defaultdict(list)      # note: needs self.callback_lock
 

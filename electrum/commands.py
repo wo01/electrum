@@ -32,6 +32,7 @@ import ast
 import base64
 from functools import wraps
 from decimal import Decimal
+from typing import Optional, TYPE_CHECKING
 
 from .import util, ecc
 from .util import bfh, bh2u, format_satoshis, json_decode, print_error, json_encode
@@ -43,8 +44,13 @@ from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
 from .synchronizer import Notifier
 from .storage import WalletStorage
 from . import keystore
-from .wallet import Wallet, Imported_Wallet
+from .wallet import Wallet, Imported_Wallet, Abstract_Wallet
 from .mnemonic import Mnemonic
+
+if TYPE_CHECKING:
+    from .network import Network
+    from .simple_config import SimpleConfig
+
 
 known_commands = {}
 
@@ -95,7 +101,8 @@ def command(s):
 
 class Commands:
 
-    def __init__(self, config, wallet, network, callback = None):
+    def __init__(self, config: 'SimpleConfig', wallet: Abstract_Wallet,
+                 network: Optional['Network'], callback=None):
         self.config = config
         self.wallet = wallet
         self.network = network
@@ -450,7 +457,7 @@ class Commands:
         privkeys = privkey.split()
         self.nocheck = nocheck
         #dest = self._resolver(destination)
-        tx = sweep(privkeys, self.network, self.config, destination, self.wallet, tx_fee, imax)
+        tx = sweep(privkeys, self.network, self.config, destination, tx_fee, imax)
         return tx.as_dict() if tx else None
 
     @command('wp')

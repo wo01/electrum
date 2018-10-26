@@ -38,25 +38,33 @@ import traceback
 from functools import partial
 from numbers import Number
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from .i18n import _
 from .util import (NotEnoughFunds, PrintError, UserCancelled, profiler,
                    format_satoshis, format_fee_satoshis, NoDynamicFeeEstimates,
                    TimeoutException, WalletFileException, BitcoinException,
                    InvalidPassword, format_time, timestamp_to_datetime, Satoshis,
-                   Fiat)
-from .bitcoin import *
+                   Fiat, bfh, bh2u)
+from .bitcoin import (COIN, TYPE_ADDRESS, is_address, address_to_script,
+                      is_minikey, relayfee, dust_threshold)
 from .version import *
+from .crypto import sha256d
 from .keystore import load_keystore, Hardware_KeyStore
-from .storage import multisig_type, STO_EV_PLAINTEXT, STO_EV_USER_PW, STO_EV_XPUB_PW
-from . import transaction, bitcoin, coinchooser, paymentrequest, contacts
+from .storage import multisig_type, STO_EV_PLAINTEXT, STO_EV_USER_PW, STO_EV_XPUB_PW, WalletStorage
+from . import transaction, bitcoin, coinchooser, paymentrequest, ecc, bip32
 from .transaction import Transaction, TxOutput, TxOutputHwInfo
 from .plugin import run_hook
 from .address_synchronizer import (AddressSynchronizer, TX_HEIGHT_LOCAL,
                                    TX_HEIGHT_UNCONF_PARENT, TX_HEIGHT_UNCONFIRMED)
-from .paymentrequest import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED
-from .paymentrequest import InvoiceStore
+from .paymentrequest import (PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED,
+                             InvoiceStore)
 from .contacts import Contacts
+
+if TYPE_CHECKING:
+    from .network import Network
+    from .simple_config import SimpleConfig
+
 
 TX_STATUS = [
     _('Unconfirmed'),
@@ -66,19 +74,7 @@ TX_STATUS = [
 ]
 
 
-
-def relayfee(network):
-    from .simple_config import FEERATE_DEFAULT_RELAY
-    MAX_RELAY_FEE = 50000
-    f = network.relay_fee if network and network.relay_fee else FEERATE_DEFAULT_RELAY
-    return min(f, MAX_RELAY_FEE)
-
-def dust_threshold(network):
-    # Change <= dust threshold is added to the tx fee
-    return 182 * 3 * relayfee(network) / 1000
-
-
-def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
+def append_utxos_to_inputs(inputs, network: 'Network', pubkey, txin_type, imax):
     if txin_type != 'p2pk':
         address = bitcoin.pubkey_to_address(txin_type, pubkey)
         scripthash = bitcoin.address_to_scripthash(address)
@@ -101,7 +97,7 @@ def append_utxos_to_inputs(inputs, network, pubkey, txin_type, imax):
         item['num_sig'] = 1
         inputs.append(item)
 
-def sweep_preparations(privkeys, network, imax=100):
+def sweep_preparations(privkeys, network: 'Network', imax=100):
 
     def find_utxos_for_privkey(txin_type, privkey, compressed):
         pubkey = ecc.ECPrivkey(privkey).get_public_key_hex(compressed=compressed)
@@ -127,7 +123,7 @@ def sweep_preparations(privkeys, network, imax=100):
     return inputs, keypairs
 
 
-def sweep(privkeys, network, config, recipient, wallet, fee=None, imax=100):
+def sweep(privkeys, network: 'Network', config: 'SimpleConfig', recipient, wallet, fee=None, imax=100):
     inputs, keypairs = sweep_preparations(privkeys, network, imax)
     total = sum(i.get('value') for i in inputs)
     if fee is None:
@@ -164,7 +160,7 @@ class Abstract_Wallet(AddressSynchronizer):
     gap_limit_for_change = 6
     verbosity_filter = 'w'
 
-    def __init__(self, storage):
+    def __init__(self, storage: WalletStorage):
         AddressSynchronizer.__init__(self, storage)
 
         # saved fields
@@ -219,9 +215,6 @@ class Abstract_Wallet(AddressSynchronizer):
         if len(addrs) > 0:
             if not bitcoin.is_address(addrs[0]):
                 raise WalletFileException('The addresses in this wallet are not koto addresses.')
-
-    def synchronize(self):
-        pass
 
     def calc_unused_change_addresses(self):
         with self.lock:
@@ -943,7 +936,7 @@ class Abstract_Wallet(AddressSynchronizer):
 
     def make_payment_request(self, addr, amount, message, expiration):
         timestamp = int(time.time())
-        _id = bh2u(Hash(addr + "%d"%timestamp))[0:10]
+        _id = bh2u(sha256d(addr + "%d"%timestamp))[0:10]
         r = {'time':timestamp, 'amount':amount, 'exp':expiration, 'address':addr, 'memo':message, 'id':_id}
         return r
 
@@ -1155,6 +1148,9 @@ class Abstract_Wallet(AddressSynchronizer):
     def is_billing_address(self, addr):
         # overloaded for TrustedCoin wallets
         return False
+
+    def is_watching_only(self) -> bool:
+        raise NotImplementedError()
 
 
 class Simple_Wallet(Abstract_Wallet):
@@ -1510,7 +1506,7 @@ class Simple_Deterministic_Wallet(Simple_Wallet, Deterministic_Wallet):
     def load_keystore(self):
         self.keystore = load_keystore(self.storage, 'keystore')
         try:
-            xtype = bitcoin.xpub_type(self.keystore.xpub)
+            xtype = bip32.xpub_type(self.keystore.xpub)
         except:
             xtype = 'standard'
         self.txin_type = 'p2pkh' if xtype == 'standard' else xtype
@@ -1580,7 +1576,7 @@ class Multisig_Wallet(Deterministic_Wallet):
             name = 'x%d/'%(i+1)
             self.keystores[name] = load_keystore(self.storage, name)
         self.keystore = self.keystores['x1/']
-        xtype = bitcoin.xpub_type(self.keystore.xpub)
+        xtype = bip32.xpub_type(self.keystore.xpub)
         self.txin_type = 'p2sh' if xtype == 'standard' else xtype
 
     def save_keystore(self):
@@ -1616,7 +1612,7 @@ class Multisig_Wallet(Deterministic_Wallet):
         return self.keystore.has_seed()
 
     def is_watching_only(self):
-        return not any([not k.is_watching_only() for k in self.get_keystores()])
+        return all([k.is_watching_only() for k in self.get_keystores()])
 
     def get_master_public_key(self):
         return self.keystore.get_master_public_key()

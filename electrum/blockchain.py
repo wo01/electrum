@@ -25,9 +25,11 @@ import threading
 from typing import Optional, Dict
 
 from . import util
-from .bitcoin import Hash, hash_encode, int_to_hex, rev_hex
+from .bitcoin import hash_encode, int_to_hex, rev_hex
+from .crypto import sha256d
 from . import constants
 from .util import bfh, bh2u
+from .simple_config import SimpleConfig
 
 try:
     import yescrypt
@@ -74,14 +76,14 @@ def hash_header(header: dict) -> str:
         return '0' * 64
     if header.get('prev_block_hash') is None:
         header['prev_block_hash'] = '00'*32
-    return hash_encode(Hash(bfh(serialize_header(header))))
+    return hash_encode(sha256d(bfh(serialize_header(header))))
 
 
 blockchains = {}  # type: Dict[int, Blockchain]
 blockchains_lock = threading.Lock()
 
 
-def read_blockchains(config):
+def read_blockchains(config: 'SimpleConfig') -> Dict[int, 'Blockchain']:
     blockchains[0] = Blockchain(config, 0, None)
     fdir = os.path.join(util.get_headers_dir(config), 'forks')
     util.make_dir(fdir)
@@ -104,7 +106,7 @@ class Blockchain(util.PrintError):
     Manages blockchain headers and their verification
     """
 
-    def __init__(self, config, forkpoint: int, parent_id: Optional[int]):
+    def __init__(self, config: SimpleConfig, forkpoint: int, parent_id: Optional[int]):
         self.config = config
         self.forkpoint = forkpoint
         self.checkpoints = constants.net.CHECKPOINTS

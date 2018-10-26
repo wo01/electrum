@@ -27,22 +27,21 @@
 
 # Note: The deserialization code originally comes from ABE.
 
-from typing import (Sequence, Union, NamedTuple, Tuple, Optional, Iterable,
-                    Callable)
-
-from .util import print_error, profiler
-
-from . import ecc
-from . import bitcoin
-from .bitcoin import *
 import struct
 import traceback
 import sys
 import os
 
-#
-# Workalike python implementation of Bitcoin's CDataStream class.
-#
+from typing import (Sequence, Union, NamedTuple, Tuple, Optional, Iterable,
+                    Callable, List)
+
+from . import ecc, bitcoin, constants, segwit_addr
+from .util import print_error, profiler, to_bytes, bh2u, bfh
+from .bitcoin import (TYPE_ADDRESS, TYPE_PUBKEY, TYPE_SCRIPT, hash_160,
+                      hash160_to_p2sh, hash160_to_p2pkh, hash_to_segwit_addr,
+                      hash_encode, var_int, TOTAL_COIN_SUPPLY_LIMIT_IN_BTC, COIN,
+                      op_push, int_to_hex, push_script, b58_address_to_hash160)
+from .crypto import sha256d
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 
 if 'ANDROID_DATA' in os.environ or sys.version_info.minor < 6:
@@ -95,6 +94,8 @@ TxOutputHwInfo = NamedTuple("TxOutputHwInfo", [('address_index', Tuple),
 
 
 class BCDataStream(object):
+    """Workalike python implementation of Bitcoin's CDataStream class."""
+
     def __init__(self):
         self.input = None
         self.read_cursor = 0
@@ -377,7 +378,7 @@ def parse_scriptSig(d, _bytes):
         if item[0] == 0:
             # segwit embedded into p2sh
             # witness version 0
-            d['address'] = bitcoin.hash160_to_p2sh(bitcoin.hash_160(item))
+            d['address'] = bitcoin.hash160_to_p2sh(hash_160(item))
             if len(item) == 22:
                 d['type'] = 'p2wpkh-p2sh'
             elif len(item) == 34:
@@ -834,7 +835,7 @@ class Transaction:
                 h.update(bfh(self.serialize_preimage(i)))
                 pre_hash = h.digest()
             else:
-                pre_hash = Hash(bfh(self.serialize_preimage(i)))
+                pre_hash = sha256d(bfh(self.serialize_preimage(i)))
             sig_string = ecc.sig_string_from_der_sig(bfh(sig[:-2]))
             for recid in range(4):
                 try:
@@ -1016,7 +1017,7 @@ class Transaction:
         witver, witprog = segwit_addr.decode(constants.net.SEGWIT_HRP, addr)
         if witprog is not None:
             return 'p2wpkh'
-        addrtype, hash_160 = b58_address_to_hash160(addr)
+        addrtype, hash_160_ = b58_address_to_hash160(addr)
         if addrtype == constants.net.ADDRTYPE_P2PKH:
             return 'p2pkh'
         elif addrtype == constants.net.ADDRTYPE_P2SH:
@@ -1092,7 +1093,7 @@ class Transaction:
             return multisig_script(pubkeys, txin['num_sig'])
         elif txin['type'] in ['p2wpkh', 'p2wpkh-p2sh']:
             pubkey = pubkeys[0]
-            pkh = bh2u(bitcoin.hash_160(bfh(pubkey)))
+            pkh = bh2u(hash_160(bfh(pubkey)))
             return '76a9' + push_script(pkh) + '88ac'
         elif txin['type'] == 'p2pk':
             pubkey = pubkeys[0]
@@ -1131,7 +1132,7 @@ class Transaction:
         if inputs:
             self._inputs.sort(key = lambda i: (i['prevout_hash'], i['prevout_n']))
         if outputs:
-            self._outputs.sort(key = lambda o: (o[2], self.pay_script(o[0], o[1])))
+            self._outputs.sort(key = lambda o: (o.value, self.pay_script(o.type, o.address)))
 
     def serialize_output(self, output):
         output_type, addr, amount = output
@@ -1237,14 +1238,14 @@ class Transaction:
         if not all_segwit and not self.is_complete():
             return None
         ser = self.serialize_to_network(witness=False)
-        return bh2u(Hash(bfh(ser))[::-1])
+        return bh2u(sha256d(bfh(ser))[::-1])
 
     def wtxid(self):
         self.deserialize()
         if not self.is_complete():
             return None
         ser = self.serialize_to_network(witness=True)
-        return bh2u(Hash(bfh(ser))[::-1])
+        return bh2u(sha256d(bfh(ser))[::-1])
 
     def add_inputs(self, inputs):
         self._inputs.extend(inputs)
@@ -1373,7 +1374,7 @@ class Transaction:
             pre_hash = h.digest()
             print_error(pre_hash)
         else:
-            pre_hash = Hash(bfh(self.serialize_preimage(txin_index)))
+            pre_hash = sha256d(bfh(self.serialize_preimage(txin_index)))
         privkey = ecc.ECPrivkey(privkey_bytes)
         sig = privkey.sign_transaction(pre_hash)
         sig = bh2u(sig) + '01'

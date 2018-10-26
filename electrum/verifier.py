@@ -22,16 +22,21 @@
 # SOFTWARE.
 
 import asyncio
-from typing import Sequence, Optional
+from typing import Sequence, Optional, TYPE_CHECKING
 
 import aiorpcx
 
 from .util import bh2u, VerifiedTxInfo, NetworkJobOnDefaultServer
-from .bitcoin import Hash, hash_decode, hash_encode
+from .crypto import sha256d
+from .bitcoin import hash_decode, hash_encode
 from .transaction import Transaction
 from .blockchain import hash_header
 from .interface import GracefulDisconnect
 from . import constants
+
+if TYPE_CHECKING:
+    from .network import Network
+    from .address_synchronizer import AddressSynchronizer
 
 
 class MerkleVerificationFailure(Exception): pass
@@ -43,7 +48,7 @@ class InnerNodeOfSpvProofIsValidTx(MerkleVerificationFailure): pass
 class SPV(NetworkJobOnDefaultServer):
     """ Simple Payment Verification """
 
-    def __init__(self, network, wallet):
+    def __init__(self, network: 'Network', wallet: 'AddressSynchronizer'):
         self.wallet = wallet
         NetworkJobOnDefaultServer.__init__(self, network)
 
@@ -135,7 +140,7 @@ class SPV(NetworkJobOnDefaultServer):
             raise MerkleVerificationFailure(e)
 
         for i, item in enumerate(merkle_branch_bytes):
-            h = Hash(item + h) if ((leaf_pos_in_tree >> i) & 1) else Hash(h + item)
+            h = sha256d(item + h) if ((leaf_pos_in_tree >> i) & 1) else sha256d(h + item)
             cls._raise_if_valid_tx(bh2u(h), height)
         return hash_encode(h)
 
