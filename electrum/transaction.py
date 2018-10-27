@@ -1200,6 +1200,7 @@ class Transaction:
             return network_ser
 
     def serialize_to_network(self, estimate_size=False, witness=True):
+        self.deserialize()
         if self.overwintered:
             nVersion = int_to_hex(self.version + 0x80000000, 4)
             nVersionGroupId = int_to_hex(self.versionGroupId, 4)
