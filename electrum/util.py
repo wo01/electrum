@@ -23,7 +23,7 @@
 import binascii
 import os, sys, re, json
 from collections import defaultdict
-from typing import NamedTuple, Union, TYPE_CHECKING, Tuple, Optional
+from typing import NamedTuple, Union, TYPE_CHECKING, Tuple, Optional, Callable
 from datetime import datetime
 import decimal
 from decimal import Decimal
@@ -111,16 +111,6 @@ class FileExportFailed(Exception):
 
     def __str__(self):
         return _("Failed to export to file.") + "\n" + self.message
-
-
-class TimeoutException(Exception):
-    def __init__(self, message=''):
-        self.message = str(message)
-
-    def __str__(self):
-        if not self.message:
-            return _("Operation timed out.")
-        return self.message
 
 
 class WalletFileException(Exception): pass
@@ -288,7 +278,7 @@ class DaemonThread(threading.Thread, PrintError):
         self.print_error("stopped")
 
 
-verbosity = '*'
+verbosity = ''
 def set_verbosity(filters: Union[str, bool]):
     global verbosity
     if type(filters) is bool:  # backwards compat
@@ -642,7 +632,7 @@ def block_explorer_info():
 
 def block_explorer(config: 'SimpleConfig') -> str:
     from . import constants
-    default_ = 'Insight' if not constants.net.TESTNET else 'Insight'
+    default_ = 'Insight'
     be_key = config.get('block_explorer', default_)
     be = block_explorer_info().get(be_key)
     return be_key if be is not None else default_
@@ -665,7 +655,7 @@ def block_explorer_URL(config: 'SimpleConfig', kind: str, item: str) -> Optional
 #_ud = re.compile('%([0-9a-hA-H]{2})', re.MULTILINE)
 #urldecode = lambda x: _ud.sub(lambda m: chr(int(m.group(1), 16)), x)
 
-def parse_URI(uri, on_pr=None):
+def parse_URI(uri: str, on_pr: Callable=None) -> dict:
     from . import bitcoin
     from .bitcoin import COIN
 
@@ -718,18 +708,17 @@ def parse_URI(uri, on_pr=None):
     sig = out.get('sig')
     name = out.get('name')
     if on_pr and (r or (name and sig)):
-        def get_payment_request_thread():
+        async def get_payment_request():
             from . import paymentrequest as pr
             if name and sig:
                 s = pr.serialize_request(out).SerializeToString()
                 request = pr.PaymentRequest(s)
             else:
-                request = pr.get_payment_request(r)
+                request = await pr.get_payment_request(r)
             if on_pr:
                 on_pr(request)
-        t = threading.Thread(target=get_payment_request_thread)
-        t.setDaemon(True)
-        t.start()
+        loop = asyncio.get_event_loop()
+        asyncio.run_coroutine_threadsafe(get_payment_request(), loop)
 
     return out
 
@@ -864,14 +853,18 @@ def ignore_exceptions(func):
     return wrapper
 
 
-TxMinedStatus = NamedTuple("TxMinedStatus", [("height", int),
-                                             ("conf", int),
-                                             ("timestamp", int),
-                                             ("header_hash", str)])
-VerifiedTxInfo = NamedTuple("VerifiedTxInfo", [("height", int),
-                                               ("timestamp", int),
-                                               ("txpos", int),
-                                               ("header_hash", str)])
+class TxMinedStatus(NamedTuple):
+    height: int
+    conf: int
+    timestamp: int
+    header_hash: str
+
+
+class VerifiedTxInfo(NamedTuple):
+    height: int
+    timestamp: int
+    txpos: int
+    header_hash: str
 
 
 def make_aiohttp_session(proxy: dict, headers=None, timeout=None):
@@ -951,3 +944,26 @@ class NetworkJobOnDefaultServer(PrintError):
         s = self.interface.session
         assert s is not None
         return s
+
+
+def create_and_start_event_loop() -> Tuple[asyncio.AbstractEventLoop,
+                                           asyncio.Future,
+                                           threading.Thread]:
+    def on_exception(loop, context):
+        """Suppress spurious messages it appears we cannot control."""
+        SUPPRESS_MESSAGE_REGEX = re.compile('SSL handshake|Fatal read error on|'
+                                            'SSL error in data received')
+        message = context.get('message')
+        if message and SUPPRESS_MESSAGE_REGEX.match(message):
+            return
+        loop.default_exception_handler(context)
+
+    loop = asyncio.get_event_loop()
+    loop.set_exception_handler(on_exception)
+    # loop.set_debug(1)
+    stopping_fut = asyncio.Future()
+    loop_thread = threading.Thread(target=loop.run_until_complete,
+                                         args=(stopping_fut,),
+                                         name='EventLoop')
+    loop_thread.start()
+    return loop, stopping_fut, loop_thread

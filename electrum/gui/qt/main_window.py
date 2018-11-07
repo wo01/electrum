@@ -36,12 +36,14 @@ from decimal import Decimal
 import base64
 from functools import partial
 import queue
+import asyncio
 
 from PyQt5.QtGui import *
 from PyQt5.QtCore import *
 import PyQt5.QtCore as QtCore
 from PyQt5.QtWidgets import *
 
+import electrum
 from electrum import (keystore, simple_config, ecc, constants, util, bitcoin, commands,
                       coinchooser, paymentrequest)
 from electrum.bitcoin import COIN, is_address, TYPE_ADDRESS
@@ -56,7 +58,8 @@ from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
                            UnknownBaseUnit, DECIMAL_POINT_DEFAULT)
 from electrum.transaction import Transaction, TxOutput
 from electrum.address_synchronizer import AddTransactionException
-from electrum.wallet import Multisig_Wallet, CannotBumpFee, Abstract_Wallet
+from electrum.wallet import (Multisig_Wallet, CannotBumpFee, Abstract_Wallet,
+                             sweep_preparations)
 from electrum.version import ELECTRUM_VERSION
 from electrum.network import Network
 from electrum.exchange_rate import FxThread
@@ -1654,10 +1657,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
                 self.invoices.set_paid(pr, tx.txid())
                 self.invoices.save()
                 self.payment_request = None
-                refund_address = self.wallet.get_receiving_addresses()[0]
-                ack_status, ack_msg = pr.send_ack(str(tx), refund_address)
-                if ack_status:
-                    msg = ack_msg
+                refund_address = self.wallet.get_receiving_address()
+                coro = pr.send_payment_and_receive_paymentack(str(tx), refund_address)
+                fut = asyncio.run_coroutine_threadsafe(coro, self.network.asyncio_loop)
+                ack_status, ack_msg = fut.result(timeout=20)
+                msg += f"\n\nPayment ACK: {ack_status}.\nAck message: {ack_msg}"
             return status, msg
 
         # Capture current TL window; override might be removed on return
@@ -1950,18 +1954,24 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         console.history = self.config.get("console-history",[])
         console.history_index = len(console.history)
 
-        console.updateNamespace({'wallet' : self.wallet,
-                                 'network' : self.network,
-                                 'plugins' : self.gui_object.plugins,
-                                 'window': self})
-        console.updateNamespace({'util' : util, 'bitcoin':bitcoin})
+        console.updateNamespace({
+            'wallet': self.wallet,
+            'network': self.network,
+            'plugins': self.gui_object.plugins,
+            'window': self,
+            'config': self.config,
+            'electrum': electrum,
+            'daemon': self.gui_object.daemon,
+            'util': util,
+            'bitcoin': bitcoin,
+        })
 
         c = commands.Commands(self.config, self.wallet, self.network, lambda: self.console.set_json(True))
         methods = {}
         def mkfunc(f, method):
             return lambda *args: f(method, args, self.password_dialog)
         for m in dir(c):
-            if m[0]=='_' or m in ['network','wallet']: continue
+            if m[0]=='_' or m in ['network','wallet','config']: continue
             methods[m] = mkfunc(c._run, m)
 
         console.updateNamespace(methods)
@@ -2421,11 +2431,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         if ok and txid:
             txid = str(txid).strip()
             try:
-                r = self.network.get_transaction(txid)
-            except BaseException as e:
-                self.show_message(str(e))
+                raw_tx = self.network.run_from_another_thread(
+                    self.network.get_transaction(txid, timeout=10))
+            except Exception as e:
+                self.show_message(_("Error getting transaction from network") + ":\n" + str(e))
                 return
-            tx = transaction.Transaction(r, self.network.get_server_height())
+            tx = transaction.Transaction(raw_tx, self.network.get_server_height())
             self.show_transaction(tx)
 
     @protected
@@ -2594,38 +2605,38 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         address_e.textChanged.connect(on_address)
         if not d.exec_():
             return
-        from electrum.wallet import sweep_preparations
+        # user pressed "sweep"
         try:
-            self.do_clear()
             coins, keypairs = sweep_preparations(get_pk(), self.network)
-            self.tx_external_keypairs = keypairs
-            self.spend_coins(coins)
-            self.payto_e.setText(get_address())
-            self.spend_max()
-            self.payto_e.setFrozen(True)
-            self.amount_e.setFrozen(True)
         except Exception as e:  # FIXME too broad...
+            #traceback.print_exc(file=sys.stderr)
             self.show_message(str(e))
             return
+        self.do_clear()
+        self.tx_external_keypairs = keypairs
+        self.spend_coins(coins)
+        self.payto_e.setText(get_address())
+        self.spend_max()
+        self.payto_e.setFrozen(True)
+        self.amount_e.setFrozen(True)
         self.warn_if_watching_only()
 
     def _do_import(self, title, header_layout, func):
         text = text_dialog(self, title, header_layout, _('Import'), allow_multi=True)
         if not text:
             return
-        bad = []
-        good = []
-        for key in str(text).split():
-            try:
-                addr = func(key)
-                good.append(addr)
-            except BaseException as e:
-                bad.append(key)
-                continue
-        if good:
-            self.show_message(_("The following addresses were added") + ':\n' + '\n'.join(good))
-        if bad:
-            self.show_critical(_("The following inputs could not be imported") + ':\n'+ '\n'.join(bad))
+        keys = str(text).split()
+        good_inputs, bad_inputs = func(keys)
+        if good_inputs:
+            msg = '\n'.join(good_inputs[:10])
+            if len(good_inputs) > 10: msg += '\n...'
+            self.show_message(_("The following addresses were added")
+                              + f' ({len(good_inputs)}):\n' + msg)
+        if bad_inputs:
+            msg = "\n".join(f"{key[:10]}... ({msg})" for key, msg in bad_inputs[:10])
+            if len(bad_inputs) > 10: msg += '\n...'
+            self.show_error(_("The following inputs could not be imported")
+                            + f' ({len(bad_inputs)}):\n' + msg)
         self.address_list.update()
         self.history_list.update()
 
@@ -2633,7 +2644,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         if not self.wallet.can_import_address():
             return
         title, msg = _('Import addresses'), _("Enter addresses")+':'
-        self._do_import(title, msg, self.wallet.import_address)
+        self._do_import(title, msg, self.wallet.import_addresses)
 
     @protected
     def do_import_privkey(self, password):
@@ -2643,7 +2654,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         header_layout = QHBoxLayout()
         header_layout.addWidget(QLabel(_("Enter private keys")+':'))
         header_layout.addWidget(InfoButton(WIF_HELP_TEXT), alignment=Qt.AlignRight)
-        self._do_import(title, header_layout, lambda x: self.wallet.import_private_key(x, password))
+        self._do_import(title, header_layout, lambda x: self.wallet.import_private_keys(x, password))
 
     def update_fiat(self):
         b = self.fx and self.fx.is_enabled()

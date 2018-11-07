@@ -38,12 +38,12 @@ import traceback
 from functools import partial
 from numbers import Number
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from .i18n import _
 from .util import (NotEnoughFunds, PrintError, UserCancelled, profiler,
                    format_satoshis, format_fee_satoshis, NoDynamicFeeEstimates,
-                   TimeoutException, WalletFileException, BitcoinException,
+                   WalletFileException, BitcoinException,
                    InvalidPassword, format_time, timestamp_to_datetime, Satoshis,
                    Fiat, bfh, bh2u)
 from .bitcoin import (COIN, TYPE_ADDRESS, is_address, address_to_script,
@@ -60,6 +60,7 @@ from .address_synchronizer import (AddressSynchronizer, TX_HEIGHT_LOCAL,
 from .paymentrequest import (PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED,
                              InvoiceStore)
 from .contacts import Contacts
+from .interface import RequestTimedOut
 
 if TYPE_CHECKING:
     from .network import Network
@@ -726,7 +727,8 @@ class Abstract_Wallet(AddressSynchronizer):
             return
         self.add_input_info(item)
         inputs = [item]
-        outputs = [TxOutput(TYPE_ADDRESS, address, value - fee)]
+        out_address = self.get_unused_address() or address
+        outputs = [TxOutput(TYPE_ADDRESS, out_address, value - fee)]
         locktime = self.get_local_height()
         return Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
 
@@ -734,7 +736,7 @@ class Abstract_Wallet(AddressSynchronizer):
         raise NotImplementedError()  # implemented by subclasses
 
     def add_input_info(self, txin):
-        address = txin['address']
+        address = self.get_txin_address(txin)
         if self.is_mine(address):
             txin['type'] = self.get_txin_type(address)
             # segwit needs value to sign
@@ -779,11 +781,14 @@ class Abstract_Wallet(AddressSynchronizer):
         tx = self.transactions.get(tx_hash, None)
         if not tx and self.network:
             try:
-                tx = Transaction(self.network.get_transaction(tx_hash), self.network.get_server_height())
-            except TimeoutException as e:
-                self.print_error('getting input txn from network timed out for {}'.format(tx_hash))
+                raw_tx = self.network.run_from_another_thread(
+                    self.network.get_transaction(tx_hash, timeout=10))
+            except RequestTimedOut as e:
+                self.print_error(f'getting input txn from network timed out for {tx_hash}')
                 if not ignore_timeout:
                     raise e
+            else:
+                tx = Transaction(raw_tx, self.network.get_server_height())
         return tx
 
     def add_hw_info(self, tx):
@@ -1241,16 +1246,29 @@ class Imported_Wallet(Simple_Wallet):
     def get_change_addresses(self):
         return []
 
-    def import_address(self, address):
-        if not bitcoin.is_address(address):
-            return ''
-        if address in self.addresses:
-            return ''
-        self.addresses[address] = {}
-        self.add_address(address)
+    def import_addresses(self, addresses: List[str]) -> Tuple[List[str], List[Tuple[str, str]]]:
+        good_addr = []  # type: List[str]
+        bad_addr = []  # type: List[Tuple[str, str]]
+        for address in addresses:
+            if not bitcoin.is_address(address):
+                bad_addr.append((address, _('invalid address')))
+                continue
+            if address in self.addresses:
+                bad_addr.append((address, _('address already in wallet')))
+                continue
+            good_addr.append(address)
+            self.addresses[address] = {}
+            self.add_address(address)
         self.save_addresses()
         self.save_transactions(write=True)
-        return address
+        return good_addr, bad_addr
+
+    def import_address(self, address: str) -> str:
+        good_addr, bad_addr = self.import_addresses([address])
+        if good_addr and good_addr[0] == address:
+            return address
+        else:
+            raise BitcoinException(str(bad_addr[0][1]))
 
     def delete_address(self, address):
         if address not in self.addresses:
@@ -1307,28 +1325,34 @@ class Imported_Wallet(Simple_Wallet):
     def get_public_key(self, address):
         return self.addresses[address].get('pubkey')
 
-    def import_private_key(self, sec, pw, redeem_script=None):
-        try:
-            txin_type, pubkey = self.keystore.import_privkey(sec, pw)
-        except Exception:
-            neutered_privkey = str(sec)[:3] + '..' + str(sec)[-2:]
-            raise BitcoinException('Invalid private key: {}'.format(neutered_privkey))
-        if txin_type in ['p2pkh', 'p2wpkh', 'p2wpkh-p2sh']:
-            if redeem_script is not None:
-                raise BitcoinException('Cannot use redeem script with script type {}'.format(txin_type))
+    def import_private_keys(self, keys: List[str], password: Optional[str]) -> Tuple[List[str],
+                                                                                     List[Tuple[str, str]]]:
+        good_addr = []  # type: List[str]
+        bad_keys = []  # type: List[Tuple[str, str]]
+        for key in keys:
+            try:
+                txin_type, pubkey = self.keystore.import_privkey(key, password)
+            except Exception:
+                bad_keys.append((key, _('invalid private key')))
+                continue
+            if txin_type not in ('p2pkh', 'p2wpkh', 'p2wpkh-p2sh'):
+                bad_keys.append((key, _('not implemented type') + f': {txin_type}'))
+                continue
             addr = bitcoin.pubkey_to_address(txin_type, pubkey)
-        elif txin_type in ['p2sh', 'p2wsh', 'p2wsh-p2sh']:
-            if redeem_script is None:
-                raise BitcoinException('Redeem script required for script type {}'.format(txin_type))
-            addr = bitcoin.redeem_script_to_address(txin_type, redeem_script)
-        else:
-            raise NotImplementedError(txin_type)
-        self.addresses[addr] = {'type':txin_type, 'pubkey':pubkey, 'redeem_script':redeem_script}
+            good_addr.append(addr)
+            self.addresses[addr] = {'type':txin_type, 'pubkey':pubkey, 'redeem_script':None}
+            self.add_address(addr)
         self.save_keystore()
-        self.add_address(addr)
         self.save_addresses()
         self.save_transactions(write=True)
-        return addr
+        return good_addr, bad_keys
+
+    def import_private_key(self, key: str, password: Optional[str]) -> str:
+        good_addr, bad_keys = self.import_private_keys([key], password=password)
+        if good_addr:
+            return good_addr[0]
+        else:
+            raise BitcoinException(str(bad_keys[0][1]))
 
     def get_redeem_script(self, address):
         d = self.addresses[address]
