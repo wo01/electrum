@@ -37,6 +37,7 @@ except ImportError as e:
     exit("Please run 'sudo pip3 install https://github.com/wo01/yescrypt_python/archive/master.zip'")
 
 HEADER_SIZE = 80  # bytes
+HEADER_SIZE_SAPLING = 112  # bytes
 MAX_TARGET = 0x0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 
 
@@ -53,13 +54,19 @@ def serialize_header(header_dict: dict) -> str:
         + int_to_hex(int(header_dict['timestamp']), 4) \
         + int_to_hex(int(header_dict['bits']), 4) \
         + int_to_hex(int(header_dict['nonce']), 4)
+    if header_dict['version'] >= 5:
+        s = s + rev_hex(header_dict['finalsapling_root'])
     return s
 
 def deserialize_header(s: bytes, height: int) -> dict:
     if not s:
         raise InvalidHeader('Invalid header: {}'.format(s))
-    if len(s) != HEADER_SIZE:
-        raise InvalidHeader('Invalid header length: {}'.format(len(s)))
+    if height < constants.net.SAPLING_HEIGHT:
+        if len(s) != HEADER_SIZE:
+            raise InvalidHeader('Invalid header length: {}'.format(len(s)))
+    else:
+        if len(s) != HEADER_SIZE_SAPLING:
+            raise InvalidHeader('Invalid header length: {}'.format(len(s)))
     hex_to_int = lambda s: int('0x' + bh2u(s[::-1]), 16)
     h = {}
     h['version'] = hex_to_int(s[0:4])
@@ -68,6 +75,8 @@ def deserialize_header(s: bytes, height: int) -> dict:
     h['timestamp'] = hex_to_int(s[68:72])
     h['bits'] = hex_to_int(s[72:76])
     h['nonce'] = hex_to_int(s[76:80])
+    if h['version'] >= 5:
+        h['finalsapling_root'] = hash_encode(s[80:112])
     h['block_height'] = height
     return h
 
@@ -107,6 +116,8 @@ class Blockchain(util.PrintError):
     """
 
     def __init__(self, config: SimpleConfig, forkpoint: int, parent_id: Optional[int]):
+        self.index_sapling = constants.net.SAPLING_HEIGHT // 2016  # index
+        self.offset_sapling = constants.net.SAPLING_HEIGHT - (constants.net.SAPLING_HEIGHT // 2016) * 2016 # offset from index_sapling
         self.config = config
         self.forkpoint = forkpoint
         self.checkpoints = constants.net.CHECKPOINTS
@@ -174,7 +185,13 @@ class Blockchain(util.PrintError):
 
     def update_size(self) -> None:
         p = self.path()
-        self._size = os.path.getsize(p)//HEADER_SIZE if os.path.exists(p) else 0
+        size = os.path.getsize(p) if os.path.exists(p) else 0
+        if constants.net.SAPLING_HEIGHT <= self.forkpoint:
+            self._size = size//HEADER_SIZE_SAPLING
+        elif size <= HEADER_SIZE * (constants.net.SAPLING_HEIGHT - self.forkpoint):
+            self._size = size//HEADER_SIZE
+        else:
+            self._size = (constants.net.SAPLING_HEIGHT - self.forkpoint) * HEADER_SIZE +  (size - (constants.net.SAPLING_HEIGHT - self.forkpoint) * HEADER_SIZE)//HEADER_SIZE_SAPLING
 
     def verify_header(self, header: dict, prev_hash: str, target: int, expected_header_hash: str=None) -> None:
         height = header.get('block_height')
@@ -183,7 +200,10 @@ class Blockchain(util.PrintError):
         _hash = hash_header(header)
         if expected_header_hash and expected_header_hash != _hash:
             raise Exception("hash mismatches with expected: {} vs {}".format(expected_header_hash, _hash))
-        _powhash = rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)))))
+        size = 80
+        if height >= constants.net.SAPLING_HEIGHT:
+            size = 112
+        _powhash = rev_hex(bh2u(yescrypt.getPoWHash(bfh(serialize_header(header)), size)))
         if prev_hash != header.get('prev_block_hash'):
             raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
         # nAverageBlocks + nMedianTimeSpan = 28 Because checkpoint don't have preblock data.
@@ -198,7 +218,15 @@ class Blockchain(util.PrintError):
             raise Exception("insufficient proof of work: %s vs target %s" % (int('0x' + _hash, 16), target))
 
     def verify_chunk(self, index: int, data: bytes) -> None:
-        num = len(data) // HEADER_SIZE
+        if index < self.index_sapling:
+            num = len(data) // HEADER_SIZE
+        elif index == self.index_sapling:
+            if len(data) <= self.offset_sapling * HEADER_SIZE:
+                num = len(data) // HEADER_SIZE
+            else:
+                num = self.offset_sapling + (len(data) - self.offset_sapling * HEADER_SIZE) // HEADER_SIZE_SAPLING
+        else:
+            num = len(data) // HEADER_SIZE_SAPLING
         start_height = index * 2016
         prev_hash = self.get_hash(start_height - 1)
         headers = {}
@@ -208,7 +236,11 @@ class Blockchain(util.PrintError):
                 expected_header_hash = self.get_hash(height)
             except MissingHeader:
                 expected_header_hash = None
-            raw_header = data[i*HEADER_SIZE : (i+1)*HEADER_SIZE]
+            start_position = self.get_delta_bytes(i)
+            if i < constants.net.SAPLING_HEIGHT:
+                raw_header = data[start_position : start_position + HEADER_SIZE]
+            else:
+                raw_header = data[start_position : start_position + HEADER_SIZE_SAPLING]
             header = deserialize_header(raw_header, index*2016 + i)
             headers[header.get('block_height')] = header
             target = self.get_target(index*2016 + i, headers)
@@ -224,6 +256,13 @@ class Blockchain(util.PrintError):
             filename = os.path.join('forks', basename)
         return os.path.join(d, filename)
 
+    def get_delta_bytes(self, height: int):
+        if height < constants.net.SAPLING_HEIGHT:
+            delta_bytes = height * HEADER_SIZE
+        else:
+            delta_bytes = constants.net.SAPLING_HEIGHT * HEADER_SIZE + (height - constants.net.SAPLING_HEIGHT) * HEADER_SIZE_SAPLING
+        return delta_bytes
+
     @with_lock
     def save_chunk(self, index: int, chunk: bytes):
         chunk_within_checkpoint_region = index < len(self.checkpoints)
@@ -233,8 +272,25 @@ class Blockchain(util.PrintError):
             main_chain.save_chunk(index, chunk)
             return
 
-        delta_height = (index * 2016 - self.forkpoint)
-        delta_bytes = delta_height * HEADER_SIZE
+        if index < self.index_sapling:
+            delta_height = (index * 2016 - self.forkpoint)
+            delta_bytes = delta_height * HEADER_SIZE
+        elif index == self.index_sapling:
+            if self.forkpoint < constants.net.SAPLING_HEIGHT:
+                delta_height = (index * 2016 - self.forkpoint)
+                delta_bytes = delta_height * HEADER_SIZE
+            else:
+                delta_height = (index * 2016 - constants.net.SAPLING_HEIGHT)
+                delta_height2 = (constants.net.SAPLING_HEIGHT - self.forkpoint)
+                delta_bytes = delta_height * HEADER_SIZE + delta_height2 * HEADER_SIZE_SAPLING
+        else:
+            if self.forkpoint < constants.net.SAPLING_HEIGHT:
+                delta_height = (index * 2016 - constants.net.SAPLING_HEIGHT)
+                delta_height2 = (constants.net.SAPLING_HEIGHT - self.forkpoint)
+                delta_bytes = delta_height * HEADER_SIZE + delta_height2 * HEADER_SIZE_SAPLING
+            else:
+                delta_height = (index * 2016 - self.forkpoint)
+                delta_bytes = delta_height * HEADER_SIZE_SAPLING
         # if this chunk contains our forkpoint, only save the part after forkpoint
         # (the part before is the responsibility of the parent)
         if delta_bytes < 0:
@@ -260,10 +316,22 @@ class Blockchain(util.PrintError):
             my_data = f.read()
         self.assert_headers_file_available(parent.path())
         with open(parent.path(), 'rb') as f:
-            f.seek((forkpoint - parent.forkpoint)*HEADER_SIZE)
-            parent_data = f.read(parent_branch_size*HEADER_SIZE)
+            if forkpoint > constants.net.SAPLING_HEIGHT:
+                if constants.net.SAPLING_HEIGHT > parent.forkpoint:
+                    offset = (forkpoint - constants.net.SAPLING_HEIGHT)*HEADER_SIZE_SAPLING + (constants.net.SAPLING_HEIGHT-parent.forkpoint)*HEADER_SIZE
+                else:
+                    offset = (forkpoint - constants.net.SAPLING_HEIGHT)*HEADER_SIZE_SAPLING + (constants.net.SAPLING_HEIGHT-parent.forkpoint)*HEADER_SIZE_SAPLING
+                f.seek(offset)
+                parent_data = f.read(parent_branch_size*HEADER_SIZE_SAPLING)
+            else:
+                offset = (forkpoint - parent.forkpoint)*HEADER_SIZE
+                f.seek(offset)
+                if constants.net.SAPLING_HEIGHT > parent.height():
+                    parent_data = f.read(parent_branch_size*HEADER_SIZE)
+                else:
+                    parent_data = f.read((parent.height()-constants.net.SAPLING_HEIGHT+1)*HEADER_SIZE_SAPLING + (constants.net.SAPLING_HEIGHT-forkpoint)*HEADER_SIZE)
         self.write(parent_data, 0)
-        parent.write(my_data, (forkpoint - parent.forkpoint)*HEADER_SIZE)
+        parent.write(my_data, offset)
         # store file path
         with blockchains_lock: chains = list(blockchains.values())
         for b in chains:
@@ -293,10 +361,11 @@ class Blockchain(util.PrintError):
 
     def write(self, data: bytes, offset: int, truncate: bool=True) -> None:
         filename = self.path()
+        size = os.path.getsize(filename) if os.path.exists(filename) else 0
         with self.lock:
             self.assert_headers_file_available(filename)
             with open(filename, 'rb+') as f:
-                if truncate and offset != self._size * HEADER_SIZE:
+                if truncate and offset != size:
                     f.seek(offset)
                     f.truncate()
                 f.seek(offset)
@@ -311,8 +380,10 @@ class Blockchain(util.PrintError):
         data = bfh(serialize_header(header))
         # headers are only _appended_ to the end:
         assert delta == self.size()
-        assert len(data) == HEADER_SIZE
-        self.write(data, delta*HEADER_SIZE)
+        assert len(data) == HEADER_SIZE || len(data) == HEADER_SIZE_SAPLING
+        filename = self.path()
+        size = os.path.getsize(filename) if os.path.exists(filename) else 0
+        self.write(data, size)
         self.swap_with_parent()
 
     def read_header(self, height: int) -> Optional[dict]:
@@ -325,13 +396,22 @@ class Blockchain(util.PrintError):
             return
         delta = height - self.forkpoint
         name = self.path()
+        if height < constants.net.SAPLING_HEIGHT:
+            offset = delta * HEADER_SIZE
+            size = HEADER_SIZE
+        else:
+            if self.forkpoint > constants.net.SAPLING_HEIGHT:
+                offset = delta * HEADER_SIZE_SAPLING
+            else:
+                offset = (height - constants.net.SAPLING_HEIGHT) * HEADER_SIZE_SAPLING + (constants.net.SAPLING_HEIGHT - self.forkpoint) * HEADER_SIZE
+            size = HEADER_SIZE_SAPLING
         self.assert_headers_file_available(name)
         with open(name, 'rb') as f:
-            f.seek(delta * HEADER_SIZE)
-            h = f.read(HEADER_SIZE)
-            if len(h) < HEADER_SIZE:
+            f.seek(offset)
+            h = f.read(size)
+            if len(h) < size:
                 raise Exception('Expected to read a full header. This was only {} bytes'.format(len(h)))
-        if h == bytes([0])*HEADER_SIZE:
+        if h == bytes([0])*size:
             return None
         return deserialize_header(h, height)
 
