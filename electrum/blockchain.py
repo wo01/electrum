@@ -380,7 +380,7 @@ class Blockchain(util.PrintError):
         data = bfh(serialize_header(header))
         # headers are only _appended_ to the end:
         assert delta == self.size()
-        assert len(data) == HEADER_SIZE || len(data) == HEADER_SIZE_SAPLING
+        assert len(data) == HEADER_SIZE or len(data) == HEADER_SIZE_SAPLING
         filename = self.path()
         size = os.path.getsize(filename) if os.path.exists(filename) else 0
         self.write(data, size)
