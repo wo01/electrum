@@ -240,8 +240,8 @@ class Blockchain(util.PrintError):
                 expected_header_hash = self.get_hash(height)
             except MissingHeader:
                 expected_header_hash = None
-            start_position = self.get_delta_bytes(i)
-            if i < constants.net.SAPLING_HEIGHT:
+            start_position = self.get_delta_bytes(height) - self.get_delta_bytes(start_height)
+            if height < constants.net.SAPLING_HEIGHT:
                 raw_header = data[start_position : start_position + HEADER_SIZE]
             else:
                 raw_header = data[start_position : start_position + HEADER_SIZE_SAPLING]

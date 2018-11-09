@@ -63,6 +63,10 @@ KOTO_NUM_JS_INPUTS = 2
 KOTO_NUM_JS_OUTPUTS = 2
 # leading + v + rho + r + memo + auth
 KOTO_NOTECIPHERTEXT_SIZE = 1 + 8 + 32 + 32 + 512 + 16
+KOTO_SAPLING_ENCPLAINTEXT_SIZE = 1 + 11 + 8 + 32 + 512
+KOTO_SAPLING_OUTPLAINTEXT_SIZE = 32 + 32
+KOTO_SAPLING_ENCCIPHERTEXT_SIZE = KOTO_SAPLING_ENCPLAINTEXT_SIZE + 16
+KOTO_SAPLING_OUTCIPHERTEXT_SIZE = KOTO_SAPLING_OUTPLAINTEXT_SIZE + 16
 
 class SerializationError(Exception):
     """ Thrown when there's a problem deserializing or serializing """
@@ -647,7 +651,7 @@ def parse_CompressedG2(vds):
     pt['x'] = vds.read_bytes(64)
     return pt
 
-def parse_Proof(vds):
+def parse_PHGRProof(vds):
     proof = {}
     proof['g_A'] = parse_CompressedG1(vds)
     proof['g_A_prime'] = parse_CompressedG1(vds)
@@ -659,7 +663,12 @@ def parse_Proof(vds):
     proof['g_H'] = parse_CompressedG1(vds)
     return proof
 
-def parse_JSDescription(vds):
+def parse_GrothProof(vds):
+    proof = {}
+    proof['GrothProof'] = vds.read_bytes(48 + 96 + 48)
+    return proof
+
+def parse_JSDescription(vds, useGroth):
     d = {}
     d['vpub_old'] = vds.read_uint64()
     d['vpub_new'] = vds.read_uint64()
@@ -669,8 +678,31 @@ def parse_JSDescription(vds):
     d['ephemeralKey'] = vds.read_bytes(32)
     d['randomSeed'] = vds.read_bytes(32);
     d['macs'] = [vds.read_bytes(32) for i in range(KOTO_NUM_JS_INPUTS)]
-    d['proof'] = parse_Proof(vds)
+    if useGroth:
+        d['proof'] = parse_GrothProof(vds)
+    else:
+        d['proof'] = parse_PHGRProof(vds)
     d['ciphertexts'] = [vds.read_bytes(KOTO_NOTECIPHERTEXT_SIZE) for i in range(KOTO_NUM_JS_OUTPUTS)]
+    return d
+
+def parse_ShieldedSpend(vds):
+    d = {}
+    d['cv'] = vds.read_bytes(32);
+    d['anchor'] = vds.read_bytes(32);
+    d['nullifiers'] = vds.read_bytes(32)
+    d['rk'] = vds.read_bytes(32)
+    d['proof'] = parse_GrothProof(vds)
+    d['spendAuthSig'] = vds.read_bytes(64)
+    return d
+
+def parse_ShieldedOutput(vds):
+    d = {}
+    d['cv'] = vds.read_bytes(32);
+    d['cm'] = vds.read_bytes(32);
+    d['ephemeralKey'] = vds.read_bytes(32)
+    d['encCiphertext'] = vds.read_bytes(KOTO_SAPLING_ENCCIPHERTEXT_SIZE)
+    d['outCiphertext'] = vds.read_bytes(KOTO_SAPLING_OUTCIPHERTEXT_SIZE)
+    d['proof'] = parse_GrothProof(vds)
     return d
 
 def deserialize(raw: str, force_full_parse=False) -> dict:
@@ -715,13 +747,22 @@ def deserialize(raw: str, force_full_parse=False) -> dict:
     d['lockTime'] = vds.read_uint32()
     if d['version'] >= 3:
         d['expiryHeight'] = vds.read_uint32()
+    if d['version'] >= 4:
+        d['valueBalance'] = vds.read_int64()
+        n_ShieldedSpend = vds.read_compact_size()
+        d['shieldedSpend'] = [parse_ShieldedSpend(vds) for i in range(n_ShieldedSpend)]
+        n_ShieldedOutput = vds.read_compact_size()
+        d['shieldedOutput'] = [parse_ShieldedOutput(vds) for i in range(n_ShieldedOutput)]
     if d['version'] >= 2:
         d['joinSplitsRaw'] = vds.get_remains()
         d['n_JSDescs'] = vds.read_compact_size()
-        d['joinSplits'] = [parse_JSDescription(vds) for i in range(d['n_JSDescs'])]
+        useGroth = (d['version'] >= 4)
+        d['joinSplits'] = [parse_JSDescription(vds, useGroth) for i in range(d['n_JSDescs'])]
         if d['n_JSDescs'] > 0:
             d['joinSplitPubKey'] = vds.read_bytes(32)
             d['joinSplitSig'] = vds.read_bytes(64)
+    if d['version'] >= 4 and not ('shieldedSpend' not in v and 'shieldedOutput' not in v):
+        d['bindingSig'] = vds.read_bytes(64)
     if vds.can_read_more():
         raise SerializationError('extra junk at the end')
     return d
@@ -763,21 +804,25 @@ class Transaction:
         self._outputs = None  # type: List[TxOutput]
         self._joinsplits = None
         self._vpub_new = 0
+        self._valueBalance = 0
         if constants.net.OVERWINTER_HEIGHT == -1 or height < constants.net.OVERWINTER_HEIGHT:
             self.version = 1
             self.overwintered = False
+            self.saplinged = False
             self.versionGroupId = 0
             self.expiryHeight = 0
             self._joinsplitsraw = None
         elif height < constants.net.SAPLING_HEIGHT:
             self.version = 3
             self.overwintered = True
+            self.saplinged = False
             self.versionGroupId = 0x2E7D970
             self.expiryHeight = height + 20
             self._joinsplitsraw = b'\x00'
         else:
             self.version = 4
             self.overwintered = True
+            self.saplinged = True
             self.versionGroupId = 0x9023E50A
             self.expiryHeight = height + 20
             self._joinsplitsraw = b'\x00'
@@ -791,6 +836,9 @@ class Transaction:
     def vpub(self):
         return self._vpub_new
         
+    def valueBalance(self):
+        return self._valueBalance
+
     def update(self, raw):
         self.raw = raw
         self._inputs = None
@@ -837,7 +885,10 @@ class Transaction:
             if sig in txin.get('signatures'):
                 continue
             if self.overwintered:
-                h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
+                if self.saplinged:
+                    h = blake2b(digest_size=32, person=SAPLING_HASH_PERSON)
+                else:
+                    h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
                 h.update(bfh(self.serialize_preimage(i)))
                 pre_hash = h.digest()
             else:
@@ -885,6 +936,8 @@ class Transaction:
         if self.version >= 3:
             self.versionGroupId = d['versionGroupId']
             self.expiryHeight = d['expiryHeight']
+        if self.version >= 4:
+            self._valueBalance = d['valueBalance']
         if self.version >= 2:
             self._vpub_new = sum(d['joinSplits'][x]['vpub_new'] for x in range(d['n_JSDescs']))
             self._joinsplits = d['joinSplits']
@@ -1121,12 +1174,13 @@ class Transaction:
         return prevout_hash + ':%d' % prevout_n
 
     @classmethod
-    def serialize_input(self, txin, script):
+    def serialize_input(self, txin, script, withSig):
         # Prev hash and index
         s = self.serialize_outpoint(txin)
         # Script length, script, sequence
         s += var_int(len(script)//2)
-        s += script
+        if withSig:
+            s += script
         s += int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
         return s
 
@@ -1176,6 +1230,9 @@ class Transaction:
             hashOutputs = bh2u(h.digest())
 
             hashJoinSplits = int_to_hex(0, 32)
+            hashShieldedSpends = int_to_hex(0, 32)
+            hashShieldedOutputs = int_to_hex(0, 32)
+            valueBalance = int_to_hex(0, 8)
 
             outpoint = self.serialize_outpoint(txin)
             preimage_script = self.get_preimage_script(txin)
@@ -1183,9 +1240,12 @@ class Transaction:
             amount = int_to_hex(txin['value'], 8)
             nSequence = int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
 
-            preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
+            if self.saplinged:
+                preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + hashShieldedSpends + hashShieldedOutputs + nLocktime + nExpiryHeight + valueBalance + nHashType + outpoint + scriptCode + amount + nSequence
+            else:
+                preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
         else:
-            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if i==k else '') for k, txin in enumerate(inputs))
+            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if i==k else '', True) for k, txin in enumerate(inputs))
             txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
             preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
@@ -1205,7 +1265,7 @@ class Transaction:
         else:
             return network_ser
 
-    def serialize_to_network(self, estimate_size=False, witness=True):
+    def serialize_to_network(self, estimate_size=False, witness=True, withSig=True):
         self.deserialize()
         if self.overwintered:
             nVersion = int_to_hex(self.version + 0x80000000, 4)
@@ -1216,8 +1276,9 @@ class Transaction:
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
+        valueBalance = int_to_hex(self._valueBalance, 8)
         joinSplitsRaw = self._joinsplitsraw
-        txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size)) for txin in inputs)
+        txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), withSig) for txin in inputs)
         txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
         use_segwit_ser_for_estimate_size = estimate_size and self.is_segwit(guess_for_address=True)
         use_segwit_ser_for_actual_use = not estimate_size and \
@@ -1232,6 +1293,8 @@ class Transaction:
             header = nVersion
             if self.overwintered:
                 header = header + nVersionGroupId + txins + txouts + nLocktime + nExpiryHeight
+                if self.saplinged:
+                    header = header + valueBalance + '00' + '00'
             else:
                 header = header + txins + txouts + nLocktime
             if self.version >= 2:
@@ -1244,7 +1307,10 @@ class Transaction:
         all_segwit = all(self.is_segwit_input(x) for x in self.inputs())
         if not all_segwit and not self.is_complete():
             return None
-        ser = self.serialize_to_network(witness=False)
+        if self.saplinged:
+            ser = self.serialize_to_network(witness=False, withSig=False)
+        else:
+            ser = self.serialize_to_network(witness=False)
         return bh2u(sha256d(bfh(ser))[::-1])
 
     def wtxid(self):
@@ -1290,7 +1356,7 @@ class Transaction:
     def estimated_input_weight(cls, txin, is_segwit_tx):
         '''Return an estimate of serialized input weight in weight units.'''
         script = cls.input_script(txin, True)
-        input_size = len(cls.serialize_input(txin, script)) // 2
+        input_size = len(cls.serialize_input(txin, script, True)) // 2
 
         if cls.is_segwit_input(txin, guess_for_address=True):
             witness_size = len(cls.serialize_witness(txin, True)) // 2
@@ -1376,7 +1442,10 @@ class Transaction:
     def sign_txin(self, txin_index, privkey_bytes) -> str:
         print_error(self.overwintered)
         if self.overwintered:
-            h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
+            if self.saplinged:
+                h = blake2b(digest_size=32, person=SAPLING_HASH_PERSON)
+            else:
+                h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
             h.update(bfh(self.serialize_preimage(txin_index)))
             pre_hash = h.digest()
             print_error(pre_hash)
