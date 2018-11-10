@@ -195,7 +195,7 @@ class Blockchain(util.PrintError):
         elif size <= HEADER_SIZE * (constants.net.SAPLING_HEIGHT - self.forkpoint):
             self._size = size//HEADER_SIZE
         else:
-            self._size = (constants.net.SAPLING_HEIGHT - self.forkpoint) * HEADER_SIZE +  (size - (constants.net.SAPLING_HEIGHT - self.forkpoint) * HEADER_SIZE)//HEADER_SIZE_SAPLING
+            self._size = (constants.net.SAPLING_HEIGHT - self.forkpoint) + (size - (constants.net.SAPLING_HEIGHT - self.forkpoint) * HEADER_SIZE)//HEADER_SIZE_SAPLING
 
     def verify_header(self, header: dict, prev_hash: str, target: int, expected_header_hash: str=None) -> None:
         height = header.get('block_height')
@@ -286,12 +286,12 @@ class Blockchain(util.PrintError):
             else:
                 delta_height = (index * 2016 - constants.net.SAPLING_HEIGHT)
                 delta_height2 = (constants.net.SAPLING_HEIGHT - self.forkpoint)
-                delta_bytes = delta_height * HEADER_SIZE + delta_height2 * HEADER_SIZE_SAPLING
+                delta_bytes = delta_height * HEADER_SIZE_SAPLING + delta_height2 * HEADER_SIZE
         else:
             if self.forkpoint < constants.net.SAPLING_HEIGHT:
                 delta_height = (index * 2016 - constants.net.SAPLING_HEIGHT)
                 delta_height2 = (constants.net.SAPLING_HEIGHT - self.forkpoint)
-                delta_bytes = delta_height * HEADER_SIZE + delta_height2 * HEADER_SIZE_SAPLING
+                delta_bytes = delta_height * HEADER_SIZE_SAPLING + delta_height2 * HEADER_SIZE
             else:
                 delta_height = (index * 2016 - self.forkpoint)
                 delta_bytes = delta_height * HEADER_SIZE_SAPLING
