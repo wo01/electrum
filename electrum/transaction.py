@@ -728,6 +728,7 @@ def deserialize(raw: str, force_full_parse=False) -> dict:
         d['version'] = header
     if d['version'] >= 3:
         d['versionGroupId'] = vds.read_uint32()
+    d['saplinged'] = (d['version'] >= 4)
     n_vin = vds.read_compact_size()
 #    is_segwit = (n_vin == 0) # if private address, n_vin == 0
     is_segwit = 0
@@ -747,6 +748,8 @@ def deserialize(raw: str, force_full_parse=False) -> dict:
     d['lockTime'] = vds.read_uint32()
     if d['version'] >= 3:
         d['expiryHeight'] = vds.read_uint32()
+    n_ShieldedSpend = 0
+    n_ShieldedOutput = 0
     if d['version'] >= 4:
         d['valueBalance'] = vds.read_int64()
         n_ShieldedSpend = vds.read_compact_size()
@@ -761,7 +764,7 @@ def deserialize(raw: str, force_full_parse=False) -> dict:
         if d['n_JSDescs'] > 0:
             d['joinSplitPubKey'] = vds.read_bytes(32)
             d['joinSplitSig'] = vds.read_bytes(64)
-    if d['version'] >= 4 and not ('shieldedSpend' not in v and 'shieldedOutput' not in v):
+    if d['version'] >= 4 and (n_ShieldedSpend != 0 or n_ShieldedOutput != 0):
         d['bindingSig'] = vds.read_bytes(64)
     if vds.can_read_more():
         raise SerializationError('extra junk at the end')
@@ -933,6 +936,7 @@ class Transaction:
         self.locktime = d['lockTime']
         self.version = d['version']
         self.overwintered = d['overwintered']
+        self.saplinged = d['saplinged']
         if self.version >= 3:
             self.versionGroupId = d['versionGroupId']
             self.expiryHeight = d['expiryHeight']
@@ -1174,12 +1178,12 @@ class Transaction:
         return prevout_hash + ':%d' % prevout_n
 
     @classmethod
-    def serialize_input(self, txin, script, withSig):
+    def serialize_input(self, txin, script, withSig=True):
         # Prev hash and index
         s = self.serialize_outpoint(txin)
         # Script length, script, sequence
-        s += var_int(len(script)//2)
         if withSig:
+            s += var_int(len(script)//2)
             s += script
         s += int_to_hex(txin.get('sequence', 0xffffffff - 1), 4)
         return s
@@ -1245,7 +1249,7 @@ class Transaction:
             else:
                 preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
         else:
-            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if i==k else '', True) for k, txin in enumerate(inputs))
+            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if i==k else '', withSig=True) for k, txin in enumerate(inputs))
             txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
             preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
@@ -1278,7 +1282,7 @@ class Transaction:
         outputs = self.outputs()
         valueBalance = int_to_hex(self._valueBalance, 8)
         joinSplitsRaw = self._joinsplitsraw
-        txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), withSig) for txin in inputs)
+        txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), withSig=withSig) for txin in inputs)
         txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
         use_segwit_ser_for_estimate_size = estimate_size and self.is_segwit(guess_for_address=True)
         use_segwit_ser_for_actual_use = not estimate_size and \
@@ -1310,7 +1314,7 @@ class Transaction:
         if self.saplinged:
             ser = self.serialize_to_network(witness=False, withSig=False)
         else:
-            ser = self.serialize_to_network(witness=False)
+            ser = self.serialize_to_network(witness=False, withSig=True)
         return bh2u(sha256d(bfh(ser))[::-1])
 
     def wtxid(self):
@@ -1356,10 +1360,10 @@ class Transaction:
     def estimated_input_weight(cls, txin, is_segwit_tx):
         '''Return an estimate of serialized input weight in weight units.'''
         script = cls.input_script(txin, True)
-        input_size = len(cls.serialize_input(txin, script, True)) // 2
+        input_size = len(cls.serialize_input(txin, script, withSig=True)) // 2
 
         if cls.is_segwit_input(txin, guess_for_address=True):
-            witness_size = len(cls.serialize_witness(txin, True)) // 2
+            witness_size = len(cls.serialize_witness(txin, withSig=True)) // 2
         else:
             witness_size = 1 if is_segwit_tx else 0
 
