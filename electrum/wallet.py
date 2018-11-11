@@ -614,15 +614,11 @@ class Abstract_Wallet(AddressSynchronizer):
             # Let the coin chooser select the coins to spend
             max_change = self.max_change_outputs if self.multiple_change else 1
             coin_chooser = coinchooser.get_coin_chooser(config)
-<<<<<<< HEAD
-            tx = coin_chooser.make_tx(inputs, outputs, change_addrs[:max_change],
-                                      fee_estimator, self.dust_threshold(), self.network.get_server_height())
-=======
             # If there is an unconfirmed RBF tx, merge with it
             base_tx = self.get_unconfirmed_base_tx_for_batching()
             if config.get('batch_rbf', False) and base_tx:
                 is_local = self.get_tx_height(base_tx.txid()).height == TX_HEIGHT_LOCAL
-                base_tx = Transaction(base_tx.serialize())
+                base_tx = Transaction(base_tx.serialize(), self.network.get_server_height())
                 base_tx.deserialize(force_full_parse=True)
                 base_tx.remove_signatures()
                 base_tx.add_inputs_info(self)
@@ -639,27 +635,18 @@ class Abstract_Wallet(AddressSynchronizer):
                 txi = []
                 txo = []
             tx = coin_chooser.make_tx(coins, txi, outputs[:] + txo, change_addrs[:max_change],
-                                      fee_estimator, self.dust_threshold())
->>>>>>> upstream/master
+                                      fee_estimator, self.dust_threshold(), self.network.get_server_height())
         else:
             # FIXME?? this might spend inputs with negative effective value...
             sendable = sum(map(lambda x:x['value'], coins))
             outputs[i_max] = outputs[i_max]._replace(value=0)
-<<<<<<< HEAD
-            tx = Transaction.from_io(inputs, outputs[:], self.network.get_server_height())
-=======
-            tx = Transaction.from_io(coins, outputs[:])
->>>>>>> upstream/master
+            tx = Transaction.from_io(coins, outputs[:], self.network.get_server_height())
             fee = fee_estimator(tx.estimated_size())
             amount = sendable - tx.output_value() - fee
             if amount < 0:
                 raise NotEnoughFunds()
             outputs[i_max] = outputs[i_max]._replace(value=amount)
-<<<<<<< HEAD
-            tx = Transaction.from_io(inputs, outputs[:], self.network.get_server_height())
-=======
-            tx = Transaction.from_io(coins, outputs[:])
->>>>>>> upstream/master
+            tx = Transaction.from_io(coins, outputs[:], self.network.get_server_height())
 
         # Timelock tx to current height.
         tx.locktime = self.get_local_height()
@@ -733,7 +720,7 @@ class Abstract_Wallet(AddressSynchronizer):
     def bump_fee(self, tx, delta):
         if tx.is_final():
             raise CannotBumpFee(_('Cannot bump fee') + ': ' + _('transaction is final'))
-        tx = Transaction(tx.serialize())
+        tx = Transaction(tx.serialize(), self.network.get_server_height())
         tx.deserialize(force_full_parse=True)  # need to parse inputs
         tx.remove_signatures()
         tx.add_inputs_info(self)
@@ -803,7 +790,6 @@ class Abstract_Wallet(AddressSynchronizer):
                     txin['value'] = item[1]
             self.add_input_sig_info(txin, address)
 
-<<<<<<< HEAD
     def add_input_value(self, txin):
         address = txin['address']
         if self.is_mine(address):
@@ -820,9 +806,6 @@ class Abstract_Wallet(AddressSynchronizer):
         for txin in tx.inputs():
             self.add_input_info(txin)
 
-
-=======
->>>>>>> upstream/master
     def can_sign(self, tx):
         if tx.is_complete():
             return False
