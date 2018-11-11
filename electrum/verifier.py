@@ -110,7 +110,10 @@ class SPV(NetworkJobOnDefaultServer):
         tx_height = merkle.get('block_height')
         pos = merkle.get('pos')
         merkle_branch = merkle.get('merkle')
-        hash = merkle.get('hash')
+        if tx_height > constants.net.SAPLING_HEIGHT:
+            hash = merkle.get('hash')
+        else:
+            hash = tx_hash
         # we need to wait if header sync/reorg is still ongoing, hence lock:
         async with self.network.bhi_lock:
             header = self.network.blockchain().read_header(tx_height)
