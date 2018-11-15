@@ -15,6 +15,8 @@ from electrum.base_wizard import ScriptTypeNotSupported
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import is_any_tx_output_on_change_branch, trezor_validate_op_return_output_and_get_data
 
+from trezorlib import debuglink, ui
+from trezorlib import btc, messages as proto
 
 # TREZOR initialization methods
 TIM_NEW, TIM_RECOVER, TIM_MNEMONIC, TIM_PRIVKEY = range(0, 4)
@@ -232,21 +234,24 @@ class TrezorPlugin(HW_PluginBase):
             client.step = 0
             if recovery_type == RECOVERY_TYPE_SCRAMBLED_WORDS:
                 recovery_type_trezor = self.types.RecoveryDeviceType.ScrambledWords
+                input_callback = ui.mnemonic_words(item > 0)
             else:
                 recovery_type_trezor = self.types.RecoveryDeviceType.Matrix
+                input_callback = ui.matrix_words
             client.recovery_device(word_count, passphrase_protection,
                                    pin_protection, label, language,
+                                   input_callback,
                                    type=recovery_type_trezor)
             if recovery_type == RECOVERY_TYPE_MATRIX:
                 handler.close_matrix_dialog()
         elif method == TIM_MNEMONIC:
             pin = pin_protection  # It's the pin, not a boolean
-            client.load_device_by_mnemonic(str(item), pin,
+            debuglink.load_device_by_mnemonic(str(item), pin,
                                            passphrase_protection,
                                            label, language)
         else:
             pin = pin_protection  # It's the pin, not a boolean
-            client.load_device_by_xprv(item, pin, passphrase_protection,
+            debuglink.load_device_by_xprv(item, pin, passphrase_protection,
                                        label, language)
 
     def _make_node_path(self, xpub, address_n):
@@ -311,9 +316,13 @@ class TrezorPlugin(HW_PluginBase):
         self.xpub_path = xpub_path
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, True)
+        txes = {}
+        for key, ptx in prev_tx.items():
+            txes[bfh(key)] = self.electrum_tx_to_txtype(ptx)
         outputs = self.tx_outputs(keystore.get_derivation(), tx)
-        signatures = client.sign_tx(self.get_coin_name(), inputs, outputs, lock_time=tx.locktime, expiry=tx.expiryHeight, version=tx.version, overwintered=tx.overwintered, version_group_id=tx.versionGroupId)[0]
-        signatures = [(bh2u(x) + '01') for x in signatures]
+        details = proto.SignTx(version=tx.version, overwintered=tx.overwintered, version_group_id=tx.versionGroupId, lock_time=tx.locktime, expiry=tx.expiryHeight)
+        signatures = client.sign_tx(self.get_coin_name(), inputs, outputs, details=details, prev_txes=txes)
+        signatures = [(bh2u(x) + '01') for x in signatures[0]]
         tx.update_signatures(signatures)
 
     def show_address(self, wallet, address, keystore=None):
@@ -362,7 +371,7 @@ class TrezorPlugin(HW_PluginBase):
                         x_pubkey = x_pubkeys[0]
                         xpub, s = parse_xpubkey(x_pubkey)
                         xpub_n = self.client_class.expand_path(self.xpub_path[xpub])
-                        txinputtype._extend_address_n(xpub_n + s)
+                        txinputtype.address_n.extend(xpub_n + s)
                         txinputtype.script_type = self.get_trezor_input_script_type(txin['type'])
                     else:
                         def f(x_pubkey):
@@ -385,7 +394,7 @@ class TrezorPlugin(HW_PluginBase):
                                 xpub, s = parse_xpubkey(x_pubkey)
                                 if xpub in self.xpub_path:
                                     xpub_n = self.client_class.expand_path(self.xpub_path[xpub])
-                                    txinputtype._extend_address_n(xpub_n + s)
+                                    txinputtype.address_n.extend(xpub_n + s)
                                     break
 
                 prev_hash = unhexlify(txin['prevout_hash'])
@@ -479,11 +488,13 @@ class TrezorPlugin(HW_PluginBase):
         t.version = d['version']
         t.lock_time = d['lockTime']
         inputs = self.tx_inputs(tx)
-        t._extend_inputs(inputs)
+        t.inputs.extend(inputs)
         for vout in d['outputs']:
-            o = t._add_bin_outputs()
-            o.amount = vout['value']
-            o.script_pubkey = bfh(vout['scriptPubKey'])
+            txoutputbin = self.types.TxOutputBinType(
+                amount = vout['value'],
+                script_pubkey = bfh(vout['scriptPubKey'])
+            )
+            t.bin_outputs.append(txoutputbin)
         return t
 
     # This function is called from the TREZOR libraries (via tx_api)

@@ -37,11 +37,12 @@ class GuiMixin(object):
         raise RuntimeError(msg.message)
 
     def callback_ButtonRequest(self, msg):
+        self.transport.write(self.proto.ButtonAck())
         message = self.msg
         if not message:
             message = self.messages.get(msg.code, self.messages['default'])
         self.handler.show_message(message.format(self.device), self.cancel)
-        return self.proto.ButtonAck()
+        return self.transport.read()
 
     def callback_PinMatrixRequest(self, msg):
         if msg.type == 2:
@@ -56,12 +57,14 @@ class GuiMixin(object):
             self.handler.show_error(_('The PIN cannot be longer than 9 characters.'))
             pin = ''  # to cancel below
         if not pin:
-            return self.proto.Cancel()
-        return self.proto.PinMatrixAck(pin=pin)
+            return self.transport.write(self.proto.Cancel())
+        self.transport.write(self.proto.PinMatrixAck(pin=pin))
+        return self.transport.read()
 
     def callback_PassphraseRequest(self, req):
         if req and hasattr(req, 'on_device') and req.on_device is True:
-            return self.proto.PassphraseAck()
+            self.transport.write(self.proto.PassphraseAck())
+            return self.transport.read()
 
         if self.creating_wallet:
             msg = _("Enter a passphrase to generate this wallet.  Each time "
@@ -72,18 +75,27 @@ class GuiMixin(object):
             msg = _("Enter the passphrase to unlock this wallet:")
         passphrase = self.handler.get_passphrase(msg, self.creating_wallet)
         if passphrase is None:
-            return self.proto.Cancel()
+            return self.transport.write(self.proto.Cancel())
         passphrase = bip39_normalize_passphrase(passphrase)
 
         ack = self.proto.PassphraseAck(passphrase=passphrase)
+        self.transport.write(ack)
+        resp = self.transport.read()
+
         length = len(ack.passphrase)
         if length > 50:
             self.handler.show_error(_("Too long passphrase ({} > 50 chars).").format(length))
-            return self.proto.Cancel()
-        return ack
+            return self.transport.write(self.proto.Cancel())
+
+        if isinstance(resp, self.proto.PassphraseStateRequest):
+            self.transport.write(self.proto.PassphraseStateAck())
+            return self.transport.read()
+        else:
+            return resp
 
     def callback_PassphraseStateRequest(self, msg):
-        return self.proto.PassphraseStateAck()
+        self.transport.write(self.proto.PassphraseStateAck())
+        return self.transport.read()
 
     def callback_WordRequest(self, msg):
         if (msg.type is not None
@@ -92,21 +104,23 @@ class GuiMixin(object):
             num = 9 if msg.type == self.types.WordRequestType.Matrix9 else 6
             char = self.handler.get_matrix(num)
             if char == 'x':
-                return self.proto.Cancel()
-            return self.proto.WordAck(word=char)
+                return self.transport.write(self.proto.Cancel())
+            self.transport.write(self.proto.WordAck(word=char))
+            return self.transport.read()
 
         self.step += 1
         msg = _("Step {}/24.  Enter seed word as explained on "
                 "your {}:").format(self.step, self.device)
         word = self.handler.get_word(msg)
         # Unfortunately the device can't handle self.proto.Cancel()
-        return self.proto.WordAck(word=word)
+        self.transport.write(self.proto.WordAck(word=word))
+        return self.transport.read()
 
 
 class TrezorClientBase(GuiMixin, PrintError):
 
     def __init__(self, handler, plugin, proto):
-        assert hasattr(self, 'tx_api')  # ProtocolMixin already constructed?
+#        assert hasattr(self, 'tx_api')  # ProtocolMixin already constructed?
         self.proto = proto
         self.device = plugin.device
         self.handler = handler
@@ -207,12 +221,12 @@ class TrezorClientBase(GuiMixin, PrintError):
         self.creating_wallet = creating
         return super(TrezorClientBase, self).get_public_node(address_n)
 
-    def close(self):
-        '''Called when Our wallet was closed or the device removed.'''
-        self.print_error("closing client")
-        self.clear_session()
-        # Release the device
-        self.transport.close()
+#    def close(self):
+#        '''Called when Our wallet was closed or the device removed.'''
+#        self.print_error("closing client")
+#        self.clear_session()
+#        # Release the device
+#        self.transport.close()
 
     def firmware_version(self):
         f = self.features
@@ -245,7 +259,6 @@ class TrezorClientBase(GuiMixin, PrintError):
     def wrap_methods(cls):
         for method in ['apply_settings', 'change_pin',
                        'get_address', 'get_public_node',
-                       'load_device_by_mnemonic', 'load_device_by_xprv',
                        'recovery_device', 'reset_device', 'sign_message',
                        'sign_tx', 'wipe_device']:
             setattr(cls, method, cls.wrapper(getattr(cls, method)))
