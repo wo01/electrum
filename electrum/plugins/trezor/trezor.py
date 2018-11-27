@@ -15,7 +15,7 @@ from electrum.base_wizard import ScriptTypeNotSupported
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import is_any_tx_output_on_change_branch, trezor_validate_op_return_output_and_get_data
 
-from trezorlib import debuglink, ui
+from trezorlib import debuglink, ui, device
 from trezorlib import btc, messages as proto
 
 # TREZOR initialization methods
@@ -40,7 +40,7 @@ class TrezorKeyStore(Hardware_KeyStore):
         client = self.get_client()
         address_path = self.get_derivation() + "/%d/%d"%sequence
         address_n = client.expand_path(address_path)
-        msg_sig = client.sign_message(self.plugin.get_coin_name(), address_n, message)
+        msg_sig = btc.sign_message(client, self.plugin.get_coin_name(), address_n, message)
         return msg_sig.signature
 
     def sign_transaction(self, tx, password):
@@ -75,9 +75,9 @@ class TrezorPlugin(HW_PluginBase):
 
     firmware_URL = 'https://wallet.trezor.io'
     libraries_URL = 'https://github.com/trezor/python-trezor'
-    minimum_firmware = (1, 7, 0)
+    minimum_firmware = (1, 7, 1)
     keystore_class = TrezorKeyStore
-    minimum_library = (0, 10, 2)
+    minimum_library = (0, 11, 0)
     SUPPORTED_XTYPES = ('standard', 'p2wpkh-p2sh', 'p2wpkh', 'p2wsh-p2sh', 'p2wsh')
 
     MAX_LABEL_LEN = 32
@@ -92,7 +92,7 @@ class TrezorPlugin(HW_PluginBase):
         from . import client
         from . import transport
         import trezorlib.messages
-        self.client_class = client.TrezorClient
+        self.client_class = client.TrezorClientElectrum
         self.types = trezorlib.messages
         self.DEVICE_IDS = ('TREZOR',)
 
@@ -232,7 +232,7 @@ class TrezorPlugin(HW_PluginBase):
             strength = 64 * (item + 2)  # 128, 192 or 256
             u2f_counter = 0
             skip_backup = False
-            client.reset_device(True, strength, passphrase_protection,
+            device.reset_device(client, True, strength, passphrase_protection,
                                 pin_protection, label, language,
                                 u2f_counter, skip_backup)
         elif method == TIM_RECOVER:
@@ -244,7 +244,7 @@ class TrezorPlugin(HW_PluginBase):
             else:
                 recovery_type_trezor = self.types.RecoveryDeviceType.Matrix
                 input_callback = ui.matrix_words
-            client.recovery_device(word_count, passphrase_protection,
+            device.recovery_device(client, word_count, passphrase_protection,
                                    pin_protection, label, language,
                                    input_callback,
                                    type=recovery_type_trezor)
@@ -327,7 +327,7 @@ class TrezorPlugin(HW_PluginBase):
             txes[bfh(key)] = self.electrum_tx_to_txtype(ptx)
         outputs = self.tx_outputs(keystore.get_derivation(), tx)
         details = proto.SignTx(version=tx.version, overwintered=tx.overwintered, version_group_id=tx.versionGroupId, lock_time=tx.locktime, expiry=tx.expiryHeight)
-        signatures = client.sign_tx(self.get_coin_name(), inputs, outputs, details=details, prev_txes=txes)
+        signatures = btc.sign_tx(client, self.get_coin_name(), inputs, outputs, details=details, prev_txes=txes)
         signatures = [(bh2u(x) + '01') for x in signatures[0]]
         tx.update_signatures(signatures)
 

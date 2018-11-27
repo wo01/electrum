@@ -6,6 +6,8 @@ from electrum.util import PrintError, UserCancelled
 from electrum.keystore import bip39_normalize_passphrase
 from electrum.bip32 import serialize_xpub, convert_bip32_path_to_list_of_uint32
 
+import trezorlib.device
+import trezorlib.btc
 
 class GuiMixin(object):
     # Requires: self.proto, self.device
@@ -36,7 +38,7 @@ class GuiMixin(object):
             raise UserCancelled()
         raise RuntimeError(msg.message)
 
-    def callback_ButtonRequest(self, msg):
+    def _callback_button(self, msg):
         self.transport.write(self.proto.ButtonAck())
         message = self.msg
         if not message:
@@ -44,7 +46,7 @@ class GuiMixin(object):
         self.handler.show_message(message.format(self.device), self.cancel)
         return self.transport.read()
 
-    def callback_PinMatrixRequest(self, msg):
+    def _callback_pin(self, msg):
         if msg.type == 2:
             msg = _("Enter a new PIN for your {}:")
         elif msg.type == 3:
@@ -61,7 +63,7 @@ class GuiMixin(object):
         self.transport.write(self.proto.PinMatrixAck(pin=pin))
         return self.transport.read()
 
-    def callback_PassphraseRequest(self, req):
+    def _callback_passphrase(self, req):
         if req and hasattr(req, 'on_device') and req.on_device is True:
             self.transport.write(self.proto.PassphraseAck())
             return self.transport.read()
@@ -187,15 +189,15 @@ class TrezorClientBase(GuiMixin, PrintError):
         else:
             self.msg = _("Confirm on your {} device to enable passphrases")
         enabled = not self.features.passphrase_protection
-        self.apply_settings(use_passphrase=enabled)
+        trezorlib.device.apply_settings(self, use_passphrase=enabled)
 
     def change_label(self, label):
         self.msg = _("Confirm the new label on your {} device")
-        self.apply_settings(label=label)
+        trezorlib.device.apply_settings(self, label=label)
 
     def change_homescreen(self, homescreen):
         self.msg = _("Confirm on your {} device to change your home screen")
-        self.apply_settings(homescreen=homescreen)
+        trezorlib.device.apply_settings(self, homescreen=homescreen)
 
     def set_pin(self, remove):
         if remove:
@@ -204,7 +206,7 @@ class TrezorClientBase(GuiMixin, PrintError):
             self.msg = _("Confirm on your {} device to change your PIN")
         else:
             self.msg = _("Confirm on your {} device to set a PIN")
-        self.change_pin(remove)
+        trezorlib.device.change_pin(self, remove)
 
     def clear_session(self):
         '''Clear the session to force pin (and passphrase if enabled)
@@ -219,7 +221,7 @@ class TrezorClientBase(GuiMixin, PrintError):
 
     def get_public_node(self, address_n, creating):
         self.creating_wallet = creating
-        return super(TrezorClientBase, self).get_public_node(address_n)
+        return trezorlib.btc.get_public_node(self, address_n)
 
 #    def close(self):
 #        '''Called when Our wallet was closed or the device removed.'''
@@ -238,27 +240,3 @@ class TrezorClientBase(GuiMixin, PrintError):
     def get_trezor_model(self):
         """Returns '1' for Trezor One, 'T' for Trezor T."""
         return self.features.model
-
-    @staticmethod
-    def wrapper(func):
-        '''Wrap methods to clear any message box they opened.'''
-
-        def wrapped(self, *args, **kwargs):
-            try:
-                self.prevent_timeouts()
-                return func(self, *args, **kwargs)
-            finally:
-                self.used()
-                self.handler.finished()
-                self.creating_wallet = False
-                self.msg = None
-
-        return wrapped
-
-    @staticmethod
-    def wrap_methods(cls):
-        for method in ['apply_settings', 'change_pin',
-                       'get_address', 'get_public_node',
-                       'recovery_device', 'reset_device', 'sign_message',
-                       'sign_tx', 'wipe_device']:
-            setattr(cls, method, cls.wrapper(getattr(cls, method)))
