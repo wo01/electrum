@@ -97,7 +97,7 @@ setup(
             'locale/*/LC_MESSAGES/electrum.mo',
         ],
     },
-    scripts=['electrum/electrum'],
+    scripts=['electrum/electrum-koto'],
     data_files=data_files,
     description="Lightweight Koto Wallet",
     author="WO",
