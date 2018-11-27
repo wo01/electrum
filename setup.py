@@ -76,7 +76,7 @@ class CustomInstallCommand(install):
 
 
 setup(
-    name="Electrum",
+    name="Electrum-KOTO",
     version=version.ELECTRUM_VERSION,
     python_requires='>={}'.format(MIN_PYTHON_VERSION),
     install_requires=requirements,
@@ -97,7 +97,7 @@ setup(
             'locale/*/LC_MESSAGES/electrum.mo',
         ],
     },
-    scripts=['electrum/electrum'],
+    scripts=['electrum/electrum-koto'],
     data_files=data_files,
     description="Lightweight Koto Wallet",
     author="WO",
