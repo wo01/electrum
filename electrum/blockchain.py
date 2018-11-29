@@ -394,7 +394,9 @@ class Blockchain(util.PrintError):
         they will be stored in different files."""
         if self.parent is None:
             return False
-        if self.parent.get_chainwork() >= self.get_chainwork():
+        # get_chainwork doesn't work yet
+        #if self.parent.get_chainwork() >= self.get_chainwork():
+        if self.parent.height() - self.forkpoint + 1 >= self.size():
             return False
         self.print_error("swap", self.forkpoint, self.parent.forkpoint)
         parent_branch_size = self.parent.height() - self.forkpoint + 1
