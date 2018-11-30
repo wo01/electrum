@@ -139,5 +139,5 @@ yarl==1.2.6 \
 colorama==0.4.0 \
     --hash=sha256:a3d89af5db9e9806a779a50296b5fdb466e281147c2c235e8225ecc6dbf7bbf3 \
     --hash=sha256:c9b54bebe91a6a803e0772c8561d53f2926bfeb17cd141fbabcb08424086595c
-https://github.com/wo01/yescrypt_python/archive/master.zip \
-    --hash=sha256:57dc7e034dd6d86bc46e39c0ed7d1e303c6f322ee91bb4a4363d058ed2e915f9
+yescrypt_koto==1.2 \
+    --hash=sha256:aaade978c3af65df469d269c81b5e6e5f3305face973c4ce8e73146248637686

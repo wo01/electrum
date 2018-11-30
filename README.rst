@@ -54,10 +54,6 @@ Check out the code from GitHub::
     git clone git://github.com/wo01/electrum-koto.git
     cd electrum-koto
 
-Need yescrypt_python::
-
-    pip3 install https://github.com/wo01/yescrypt_python/archive/master.zip
-
 Run install (this should install dependencies)::
 
     python3 -m pip install .[fast]

@@ -31,10 +31,7 @@ from . import constants
 from .util import bfh, bh2u
 from .simple_config import SimpleConfig
 
-try:
-    import yescrypt
-except ImportError as e:
-    exit("Please run 'sudo pip3 install https://github.com/wo01/yescrypt_python/archive/master.zip'")
+import yescrypt
 
 HEADER_SIZE = 80  # bytes
 HEADER_SIZE_SAPLING = 112  # bytes
