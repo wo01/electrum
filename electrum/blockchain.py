@@ -528,7 +528,7 @@ class Blockchain(util.PrintError):
             return constants.net.GENESIS
         elif is_height_checkpoint():
             index = height // 2016
-            h, t = self.checkpoints[index]
+            h, t, w = self.checkpoints[index]
             return h
         else:
             header = self.read_header(height)
@@ -619,7 +619,7 @@ class Blockchain(util.PrintError):
         if height == -1:
             return MAX_TARGET
         if height // 2016 < len(self.checkpoints) and (height) % 2016 == 0:
-            h, t = self.checkpoints[height // 2016]
+            h, t, w = self.checkpoints[height // 2016]
             return t
         if height // 2016 < len(self.checkpoints) and (height) % 2016 != 0:
             return 0
@@ -649,8 +649,12 @@ class Blockchain(util.PrintError):
 
     def chainwork_of_header_at_height(self, height: int) -> int:
         """work done by single header at given height"""
-        target = self.get_target(height)
-        work = ((2 ** 256 - target - 1) // (target + 1)) + 1
+        header = self.read_header(height)
+        work = 0
+        if header:
+            bits = header.get('bits')
+            target = self.bits_to_target(bits)
+            work = ((2 ** 256 - target - 1) // (target + 1)) + 1
         return work
 
     @with_lock
@@ -661,6 +665,9 @@ class Blockchain(util.PrintError):
             # On testnet/regtest, difficulty works somewhat different.
             # It's out of scope to properly implement that.
             return height
+        for i in range(len(self.checkpoints)):
+            h, t, w = self.checkpoints[i]
+            _CHAINWORK_CACHE[h] = w
         last_retarget = height // 2016 * 2016 - 1
         cached_height = last_retarget
         while _CHAINWORK_CACHE.get(self.get_hash(cached_height)) is None:
@@ -669,11 +676,14 @@ class Blockchain(util.PrintError):
             cached_height -= 2016
         assert cached_height >= -1, cached_height
         running_total = _CHAINWORK_CACHE[self.get_hash(cached_height)]
-        while cached_height < last_retarget:
+        while cached_height < height:
             cached_height += 1
             work_in_single_header = self.chainwork_of_header_at_height(cached_height)
+            if work_in_single_header == 0:
+                self.print_error("chainwork is invalid value", cached_height)
+                break
             running_total += work_in_single_header
-            if cached_height % 2016 == 0:
+            if cached_height % 2016 == 2015:
                 _CHAINWORK_CACHE[self.get_hash(cached_height)] = running_total
         return running_total
 
@@ -724,8 +734,9 @@ class Blockchain(util.PrintError):
         for index in range(n):
             h = self.get_hash((index+1) * 2016 -1)
             self.print_error("checkpoints", index)
-            target = self.get_target(index * 2016)
-            cp.append((h, target))
+            target = self.get_target((index + 1)* 2016)
+            chainwork = self.get_chainwork((index+1) * 2016 -1)
+            cp.append((h, target, chainwork))
         return cp
 
 
