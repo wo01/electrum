@@ -15,8 +15,6 @@ LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
 
 PYTHON_VERSION=3.6.6
 
-YESCRYPT_HASH_PYTHON_URL=https://github.com/wo01/yescrypt_python/releases/download/1.1/yescrypt-1.1-cp36-cp36m-win32.whl
-
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
 #export WINEARCH='win32'
@@ -139,9 +137,6 @@ verify_hash $LIBUSB_FILENAME "$LIBUSB_SHA256"
 7z x -olibusb $LIBUSB_FILENAME -aoa
 
 cp libusb/MS32/dll/libusb-1.0.dll $WINEPREFIX/drive_c/python$PYTHON_VERSION/
-
-# install yescrypt
-$PYTHON -m pip install $YESCRYPT_HASH_PYTHON_URL
 
 mkdir -p $WINEPREFIX/drive_c/tmp
 cp secp256k1/libsecp256k1.dll $WINEPREFIX/drive_c/tmp/
