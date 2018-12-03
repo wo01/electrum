@@ -730,7 +730,7 @@ class Blockchain(util.PrintError):
         for index in range(n):
             h = self.get_hash((index+1) * 2016 -1)
             self.print_error("checkpoints", index)
-            target = self.get_target((index + 1)* 2016)
+            target = self.get_target(index * 2016)
             chainwork = self.get_chainwork((index+1) * 2016 -1)
             cp.append((h, target, chainwork))
         return cp
