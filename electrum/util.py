@@ -22,7 +22,7 @@
 # SOFTWARE.
 import binascii
 import os, sys, re, json
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from typing import NamedTuple, Union, TYPE_CHECKING, Tuple, Optional, Callable
 from datetime import datetime
 import decimal
@@ -130,15 +130,35 @@ class UserCancelled(Exception):
     '''An exception that is suppressed from the user'''
     pass
 
-class Satoshis(NamedTuple):
-    value: int
+
+# note: this is not a NamedTuple as then its json encoding cannot be customized
+class Satoshis(object):
+    __slots__ = ('value',)
+
+    def __new__(cls, value):
+        self = super(Satoshis, cls).__new__(cls)
+        self.value = value
+        return self
+
+    def __repr__(self):
+        return 'Satoshis(%d)'%self.value
 
     def __str__(self):
         return format_satoshis(self.value) + " KOTO"
 
-class Fiat(NamedTuple):
-    value: Optional[Decimal]
-    ccy: str
+
+# note: this is not a NamedTuple as then its json encoding cannot be customized
+class Fiat(object):
+    __slots__ = ('value', 'ccy')
+
+    def __new__(cls, value, ccy):
+        self = super(Fiat, cls).__new__(cls)
+        self.ccy = ccy
+        self.value = value
+        return self
+
+    def __repr__(self):
+        return 'Fiat(%s)'% self.__str__()
 
     def __str__(self):
         if self.value is None or self.value.is_nan():
@@ -146,8 +166,10 @@ class Fiat(NamedTuple):
         else:
             return "{:.2f}".format(self.value) + ' ' + self.ccy
 
+
 class MyEncoder(json.JSONEncoder):
     def default(self, obj):
+        # note: this does not get called for namedtuples :(  https://bugs.python.org/issue30343
         from .transaction import Transaction
         if isinstance(obj, Transaction):
             return obj.as_dict()
@@ -818,8 +840,8 @@ def ignore_exceptions(func):
 class TxMinedStatus(NamedTuple):
     height: int
     conf: int
-    timestamp: int
-    header_hash: str
+    timestamp: Optional[int]
+    header_hash: Optional[str]
 
 
 class VerifiedTxInfo(NamedTuple):
@@ -929,3 +951,55 @@ def create_and_start_event_loop() -> Tuple[asyncio.AbstractEventLoop,
                                          name='EventLoop')
     loop_thread.start()
     return loop, stopping_fut, loop_thread
+
+
+class OrderedDictWithIndex(OrderedDict):
+    """An OrderedDict that keeps track of the positions of keys.
+
+    Note: very inefficient to modify contents, except to add new items.
+    """
+
+    _key_to_pos = {}
+
+    def _recalc_key_to_pos(self):
+        self._key_to_pos = {key: pos for (pos, key) in enumerate(self.keys())}
+
+    def get_pos_of_key(self, key):
+        return self._key_to_pos[key]
+
+    def popitem(self, *args, **kwargs):
+        ret = super().popitem(*args, **kwargs)
+        self._recalc_key_to_pos()
+        return ret
+
+    def move_to_end(self, *args, **kwargs):
+        ret = super().move_to_end(*args, **kwargs)
+        self._recalc_key_to_pos()
+        return ret
+
+    def clear(self):
+        ret = super().clear()
+        self._recalc_key_to_pos()
+        return ret
+
+    def pop(self, *args, **kwargs):
+        ret = super().pop(*args, **kwargs)
+        self._recalc_key_to_pos()
+        return ret
+
+    def update(self, *args, **kwargs):
+        ret = super().update(*args, **kwargs)
+        self._recalc_key_to_pos()
+        return ret
+
+    def __delitem__(self, *args, **kwargs):
+        ret = super().__delitem__(*args, **kwargs)
+        self._recalc_key_to_pos()
+        return ret
+
+    def __setitem__(self, key, *args, **kwargs):
+        is_new_key = key not in self
+        ret = super().__setitem__(key, *args, **kwargs)
+        if is_new_key:
+            self._key_to_pos[key] = len(self) - 1
+        return ret
