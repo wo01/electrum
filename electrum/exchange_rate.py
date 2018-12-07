@@ -155,6 +155,21 @@ class Bisq(ExchangeBase):
         return res
 
 
+class Crex24(ExchangeBase):
+
+    async def get_rates(self, ccy):
+        json = await self.get_json('api.crex24.com', '/v2/public/tickers?instrument=KOTO-BTC')
+        btc = Decimal(json[0]['last'])
+
+        res = {}
+        if ccy == 'BTC':
+            res['BTC'] = btc
+        else:
+            await _to_fiat(self, btc, ccy, res)
+
+        return res
+
+
 class SafeTrade(ExchangeBase):
 
     async def get_rates(self, ccy):

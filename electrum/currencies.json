@@ -4,6 +4,11 @@
         "USD",
         "JPY"
     ],
+    "Crex24": [
+        "BTC",
+        "USD",
+        "JPY"
+    ],
     "SafeTrade": [
         "BTC",
         "USD",
