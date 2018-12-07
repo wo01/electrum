@@ -31,7 +31,7 @@ version.filename = %(source.dir)s/electrum/version.py
 #version = 1.9.8
 
 # (list) Application requirements
-requirements = python3, android, openssl, plyer, kivy==master, libffi, libsecp256k1, yescrypt, pyblake2
+requirements = python3, android, openssl, plyer, kivy==master, libffi, libsecp256k1, setuptools, yescrypt, pyblake2
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/gui/kivy/theming/splash.png
