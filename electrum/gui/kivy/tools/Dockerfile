@@ -97,7 +97,7 @@ RUN dpkg --add-architecture i386 \
 # specific recipes dependencies (e.g. libffi requires autoreconf binary)
 RUN apt -y update -qq \
     && apt -y install -qq --no-install-recommends \
-        autoconf automake cmake gettext libltdl-dev libtool pkg-config \
+        autoconf automake cmake gettext libffi-dev libltdl-dev libtool pkg-config \
         python3.7 \
     && apt -y autoremove \
     && apt -y clean
