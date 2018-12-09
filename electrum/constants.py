@@ -154,4 +154,4 @@ def set_testnet():
 
 def set_regtest():
     global net
-    net = Kotoegtest
+    net = KotoRegtest
