@@ -155,6 +155,21 @@ class Bisq(ExchangeBase):
         return res
 
 
+class BiteBTC(ExchangeBase):
+
+    async def get_rates(self, ccy):
+        json = await self.get_json('bitebtc.com', '/api/v1/ticker?market=koto_btc')
+        btc = Decimal(json['result']['price'])
+
+        res = {}
+        if ccy == 'BTC':
+            res['BTC'] = btc
+        else:
+            await _to_fiat(self, btc, ccy, res)
+
+        return res
+
+
 class Crex24(ExchangeBase):
 
     async def get_rates(self, ccy):
