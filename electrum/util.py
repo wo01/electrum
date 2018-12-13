@@ -40,10 +40,12 @@ import builtins
 import json
 import time
 from typing import NamedTuple, Optional
+import ssl
 
 import aiohttp
 from aiohttp_socks import SocksConnector, SocksVer
 from aiorpcx import TaskGroup
+import certifi
 
 from .i18n import _
 
@@ -55,6 +57,9 @@ if TYPE_CHECKING:
 
 def inv_dict(d):
     return {v: k for k, v in d.items()}
+
+
+ca_path = certifi.where()
 
 
 base_units = {'KOTO':8, 'mKOTO':5, 'uKOTO':2, 'sat':0}
@@ -793,6 +798,10 @@ def setup_thread_excepthook():
     threading.Thread.__init__ = init
 
 
+def send_exception_to_crash_reporter(e: BaseException):
+    sys.excepthook(type(e), e, e.__traceback__)
+
+
 def versiontuple(v):
     return tuple(map(int, (v.split("."))))
 
@@ -873,6 +882,8 @@ def make_aiohttp_session(proxy: dict, headers=None, timeout=None):
         headers = {'User-Agent': 'Electrum'}
     if timeout is None:
         timeout = aiohttp.ClientTimeout(total=10)
+    ssl_context = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH, cafile=ca_path)
+
     if proxy:
         connector = SocksConnector(
             socks_ver=SocksVer.SOCKS5 if proxy['mode'] == 'socks5' else SocksVer.SOCKS4,
@@ -880,11 +891,13 @@ def make_aiohttp_session(proxy: dict, headers=None, timeout=None):
             port=int(proxy['port']),
             username=proxy.get('user', None),
             password=proxy.get('password', None),
-            rdns=True
+            rdns=True,
+            ssl_context=ssl_context,
         )
-        return aiohttp.ClientSession(headers=headers, timeout=timeout, connector=connector)
     else:
-        return aiohttp.ClientSession(headers=headers, timeout=timeout)
+        connector = aiohttp.TCPConnector(ssl_context=ssl_context)
+
+    return aiohttp.ClientSession(headers=headers, timeout=timeout, connector=connector)
 
 
 class SilentTaskGroup(TaskGroup):

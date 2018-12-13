@@ -9,9 +9,9 @@ import threading
 
 from electrum.bitcoin import TYPE_ADDRESS
 from electrum.storage import WalletStorage
-from electrum.wallet import Wallet
+from electrum.wallet import Wallet, InternalAddressCorruption
 from electrum.paymentrequest import InvoiceStore
-from electrum.util import profiler, InvalidPassword
+from electrum.util import profiler, InvalidPassword, send_exception_to_crash_reporter
 from electrum.plugin import run_hook
 from electrum.util import format_satoshis, format_satoshis_plain
 from electrum.paymentrequest import PR_UNPAID, PR_PAID, PR_UNKNOWN, PR_EXPIRED
@@ -717,6 +717,11 @@ class ElectrumWindow(App):
             self.receive_screen.clear()
         self.update_tabs()
         run_hook('load_wallet', wallet, self)
+        try:
+            wallet.try_detecting_internal_addresses_corruption()
+        except InternalAddressCorruption as e:
+            self.show_error(str(e))
+            send_exception_to_crash_reporter(e)
 
     def update_status(self, *dt):
         self.num_blocks = self.network.get_local_height()
@@ -759,6 +764,10 @@ class ElectrumWindow(App):
             return ''
         except NotEnoughFunds:
             return ''
+        except InternalAddressCorruption as e:
+            self.show_error(str(e))
+            send_exception_to_crash_reporter(e)
+            return ''
         amount = tx.output_value()
         __, x_fee_amount = run_hook('get_tx_extra_fee', self.wallet, tx) or (None, 0)
         amount_after_all_fees = amount - x_fee_amount
@@ -786,7 +795,7 @@ class ElectrumWindow(App):
             notification.notify('Electrum', message,
                             app_icon=icon, app_name='Electrum for Koto')
         except ImportError:
-            Logger.Error('Notification: needs plyer; `sudo pip install plyer`')
+            Logger.Error('Notification: needs plyer; `sudo python3 -m pip install plyer`')
 
     def on_pause(self):
         self.pause_time = time.time()

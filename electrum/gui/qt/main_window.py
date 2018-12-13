@@ -56,11 +56,11 @@ from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
                            base_units, base_units_list, base_unit_name_to_decimal_point,
                            decimal_point_to_base_unit_name, quantize_feerate,
                            UnknownBaseUnit, DECIMAL_POINT_DEFAULT, UserFacingException,
-                           get_new_wallet_name)
+                           get_new_wallet_name, send_exception_to_crash_reporter)
 from electrum.transaction import Transaction, TxOutput
 from electrum.address_synchronizer import AddTransactionException
 from electrum.wallet import (Multisig_Wallet, CannotBumpFee, Abstract_Wallet,
-                             sweep_preparations)
+                             sweep_preparations, InternalAddressCorruption)
 from electrum.version import ELECTRUM_VERSION
 from electrum.network import Network
 from electrum.exchange_rate import FxThread
@@ -222,7 +222,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         # update fee slider in case we missed the callback
         self.fee_slider.update()
         self.load_wallet(wallet)
-        self.connect_slots(gui_object.timer)
+        gui_object.timer.timeout.connect(self.timer_actions)
         self.fetch_alias()
 
     def on_history(self, b):
@@ -399,6 +399,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
             self.show()
         self.watching_only_changed()
         run_hook('load_wallet', wallet, self)
+        try:
+            wallet.try_detecting_internal_addresses_corruption()
+        except InternalAddressCorruption as e:
+            self.show_error(str(e))
+            send_exception_to_crash_reporter(e)
 
     def init_geometry(self):
         winpos = self.wallet.storage.get("winpos-qt")
@@ -664,9 +669,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         if fileName and directory != os.path.dirname(fileName):
             self.config.set_key('io_dir', os.path.dirname(fileName), True)
         return fileName
-
-    def connect_slots(self, sender):
-        sender.timer_signal.connect(self.timer_actions)
 
     def timer_actions(self):
         # Note this runs in the GUI thread
@@ -1030,7 +1032,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.receive_amount_e.setAmount(None)
 
     def clear_receive_tab(self):
-        addr = self.wallet.get_receiving_address() or ''
+        try:
+            addr = self.wallet.get_receiving_address() or ''
+        except InternalAddressCorruption as e:
+            self.show_error(str(e))
+            addr = ''
         self.receive_address_e.setText(addr)
         self.receive_message_e.setText('')
         self.receive_amount_e.setAmount(None)
@@ -1557,6 +1563,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         except (NotEnoughFunds, NoDynamicFeeEstimates) as e:
             self.show_message(str(e))
             return
+        except InternalAddressCorruption as e:
+            self.show_error(str(e))
+            raise
         except BaseException as e:
             traceback.print_exc(file=sys.stdout)
             self.show_message(str(e))
@@ -2606,9 +2615,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         keys_e.textChanged.connect(f)
         address_e.textChanged.connect(f)
         address_e.textChanged.connect(on_address)
+        on_address(str(address_e.text()))
         if not d.exec_():
             return
         # user pressed "sweep"
+        addr = get_address()
+        try:
+            self.wallet.check_address(addr)
+        except InternalAddressCorruption as e:
+            self.show_error(str(e))
+            raise
         try:
             coins, keypairs = sweep_preparations(get_pk(), self.network)
         except Exception as e:  # FIXME too broad...
@@ -2618,7 +2634,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         self.do_clear()
         self.tx_external_keypairs = keypairs
         self.spend_coins(coins)
-        self.payto_e.setText(get_address())
+        self.payto_e.setText(addr)
         self.spend_max()
         self.payto_e.setFrozen(True)
         self.amount_e.setFrozen(True)
@@ -3116,6 +3132,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, PrintError):
         if self.qr_window:
             self.qr_window.close()
         self.close_wallet()
+
+        self.gui_object.timer.timeout.disconnect(self.timer_actions)
         self.gui_object.close_window(self)
 
     def plugins_dialog(self):
