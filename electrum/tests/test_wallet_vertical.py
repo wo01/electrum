@@ -341,10 +341,9 @@ class TestWalletSending(TestCaseForTestnet):
         tx = sweep(privkeys, network, config=None, recipient=dest_addr, fee=5000)
 
         tx_copy = Transaction(tx.serialize(), 100000)
-        self.assertEqual('010000000129349e5641d79915e9d0282fdbaee8c3df0b6731bab9d70bf626e8588bde24ac010000004847304402206bf0d0a93abae0d5873a62ebf277a5dd2f33837821e8b93e74d04e19d71b578002201a6d729bc159941ef5c4c9e5fe13ece9fc544351ba531b00f68ba549c8b38a9a01fdffffff01b82e0f00000000001600148ba0a0bc12b51831f58c7ea8607e76c5982c071fd93a1400',
+        self.assertEqual('040000800ae523900129349e5641d79915e9d0282fdbaee8c3df0b6731bab9d70bf626e8588bde24ac01000000484730440220610965edc5a0b223d75d792fb75152af2079c7379b50c7f83f0781a345578ac80220595bc3cafbf282e421adb8fd44e65d00326859f5f0dfae560030c7a5c74f088301fdffffff01b82e0f00000000001976a9146702df3d1073c362f559b72c2785cb6f6b6a90b088acd93a1400ed3a14000000000000000000000000',
                          str(tx_copy))
-        self.assertEqual('7f827fc5256c274fd1094eb7e020c8ded0baf820356f61aa4f14a9093b0ea0ee', tx_copy.txid())
-        self.assertEqual('7f827fc5256c274fd1094eb7e020c8ded0baf820356f61aa4f14a9093b0ea0ee', tx_copy.wtxid())
+        self.assertEqual('90096c8be32eab35198c8fbb899e0414ec8029f1ca19f820291c6e7b9738ba81', tx_copy.txid())
 
 
 class TestWalletOfflineSigning(TestCaseForTestnet):
