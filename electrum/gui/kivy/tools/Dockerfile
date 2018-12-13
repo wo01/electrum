@@ -126,6 +126,8 @@ RUN python3 -m pip install --upgrade cython==0.29
 RUN cd /opt \
     && git clone https://github.com/kivy/buildozer \
     && cd buildozer \
+    && git fetch origin pull/766/head:fix \
+    && git checkout fix \
     && python3 -m pip install -e .
 
 # install python-for-android
@@ -135,6 +137,10 @@ RUN cd /opt \
     && git remote add sombernight https://github.com/SomberNight/python-for-android \
     && git fetch --all \
     && git checkout f74226666af69f9915afaee9ef9292db85a6c617 \
+    && git config --global user.email "you@example.com" \
+    && git config --global user.name "Your Name" \
+    && git cherry-pick d8e3d516eb4409d3b97fb2b0ed889343ba6d233a \
+    && git cherry-pick fbb5a2887a532d5576b5d7cd57c4f1d458de72f6 \
     && python3 -m pip install -e .
 
 # build env vars
