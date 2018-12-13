@@ -397,12 +397,6 @@ class Test_xprv_xpub(SequentialTestCase):
         {'xprv': 'xprvA41z7zogVVwxVSgdKUHDy1SKmdb533PjDz7J6N6mV6uS3ze1ai8FHa8kmHScGpWmj4WggLyQjgPie1rFSruoUihUZREPSL39UNdE3BBDu76',
          'xpub': 'xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy',
          'xtype': 'standard'},
-#        {'xprv': 'yprvAJEYHeNEPcyBoQYM7sGCxDiNCTX65u4ANgZuSGTrKN5YCC9MP84SBayrgaMyZV7zvkHrr3HVPTK853s2SPk4EttPazBZBmz6QfDkXeE8Zr7',
-#         'xpub': 'ypub6XDth9u8DzXV1tcpDtoDKMf6kVMaVMn1juVWEesTshcX4zUVvfNgjPJLXrD9N7AdTLnbHFL64KmBn3SNaTe69iZYbYCqLCCNPZKbLz9niQ4',
-#         'xtype': 'p2wpkh-p2sh'},
-#        {'xprv': 'zprvAWgYBBk7JR8GkraNZJeEodAp2UR1VRWJTXyV1ywuUVs1awUgTiBS1ZTDtLA5F3MFDn1LZzu8dUpSKdT7ToDpvEG6PQu4bJs7zQY47Sd3sEZ',
-#         'xpub': 'zpub6jftahH18ngZyLeqfLBFAm7YaWFVttE9pku5pNMX2qPzTjoq1FVgZMmhjecyB2nqFb31gHE9vNvbaggU6vvWpNZbXEWLLUjYjFqG95LNyT8',
-#         'xtype': 'p2wpkh'},
     )
 
     def _do_test_bip32(self, seed, sequence):
@@ -572,26 +566,25 @@ class Test_keyImport(SequentialTestCase):
             'compressed': False,
             'addr_encoding': 'base58',
             'scripthash': '54db9e0f1a70352af7ed8cd5c721e82697cd2c608c46be9a6e6da4f2f71835e7'},
-#           {'priv': 'p2pkh:GHBi554QRibSKfUGixFiz57cLU5BtNSdUynzSXv1nvA4',
-#            'exported_privkey': 'p2pkh:GHBi554QRibSKfUGixFiz57cLU5BtNSdUynzSXv1nvA4',
-#            'pub': '02f92afef7e0558210ffa163db19eafe9600cc3432d4067bca1c59a7cab08d4baf',
-#            'address': 'k1J2C7YpxzAqZkTBQACbYygcTqaKNhksdkB',
-#            'minikey': False,
-#            'txin_type': 'p2pkh',
-#            'compressed': False,
-#            'addr_encoding': 'base58',
-#            'scripthash': 'b5fbaa02fa9f2dd015e34a5350081b0552e6725b9636f6adc2ed2bf2cf7b4004'},
-#           # from http://bitscan.com/articles/security/spotlight-on-mini-private-keys
-#           {'priv': 'SzavMBLoXU6kDrqtUVmffv',
-#            'exported_privkey': 'p2pkh:5Kb8kLf9zgWQnogidDA76MzPL6TsZZY36hWXMssSzNydYXYB9KF',
-#            'pub': '04588d202afcc1ee4ab5254c7847ec25b9a135bbda0f2bc69ee1a714749fd77dc9f88ff2a00d7e752d44cbe16e1ebcf0890b76ec7c78886109dee76ccfc8445424',
-#            'address': '1CC3X2gu58d6wXUWMffpuzN9JAfTUWu4Kj',
-##            'address': 'k1EbQmBxAzWF9cjVBBU5h8KGF43n4v5qQX9',
-#            'minikey': True,
-#            'txin_type': 'p2pkh',
-#            'compressed': False,  # this is actually ambiguous... issue #2748
-#            'addr_encoding': 'base58',
-#            'scripthash': '795775ac77bc75d4de65c14efce40dde4f0a0f22a7cea9f6caa36a24d865f55b'},
+           {'priv': 'p2pkh:5KhYQCe1xd5g2tqpmmGpUWDpDuTbA8vnpbiCNDwMPAx29WNQYfN',
+            'exported_privkey': 'p2pkh:5KhYQCe1xd5g2tqpmmGpUWDpDuTbA8vnpbiCNDwMPAx29WNQYfN',
+            'pub': '048f0431b0776e8210376c81280011c2b68be43194cb00bd47b7e9aa66284b713ce09556cde3fee606051a07613f3c159ef3953b8927c96ae3dae94a6ba4182e0e',
+            'address': 'jzzxHTSixPHiLUoZNP86QHA5awSNriaKfX5',
+            'minikey': False,
+            'txin_type': 'p2pkh',
+            'compressed': False,
+            'addr_encoding': 'base58',
+            'scripthash': '6dd2e07ad2de9ba8eec4bbe8467eb53f8845acff0d9e6f5627391acc22ff62df'},
+           # from http://bitscan.com/articles/security/spotlight-on-mini-private-keys
+           {'priv': 'SzavMBLoXU6kDrqtUVmffv',
+            'exported_privkey': 'p2pkh:5Kb8kLf9zgWQnogidDA76MzPL6TsZZY36hWXMssSzNydYXYB9KF',
+            'pub': '04588d202afcc1ee4ab5254c7847ec25b9a135bbda0f2bc69ee1a714749fd77dc9f88ff2a00d7e752d44cbe16e1ebcf0890b76ec7c78886109dee76ccfc8445424',
+            'address': 'k192aG48ZhGfbmydS3x7AT7NCEhXym4e4cM',
+            'minikey': True,
+            'txin_type': 'p2pkh',
+            'compressed': False,  # this is actually ambiguous... issue #2748
+            'addr_encoding': 'base58',
+            'scripthash': '5b07ddfde826f5125ee823900749103cea37808038ecead5505a766a07c34445'},
     )
 
     @needs_test_with_all_ecc_implementations
