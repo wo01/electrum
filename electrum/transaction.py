@@ -1424,10 +1424,10 @@ class Transaction:
         s, r = self.signature_count()
         return r == s
 
-    def sign(self, keypairs, wallet) -> None:
+    def sign(self, keypairs) -> None:
         # keypairs:  (x_)pubkey -> secret_bytes
         for i, txin in enumerate(self.inputs()):
-            wallet.add_input_value(txin)
+#            wallet.add_input_value(txin)
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
             for j, (pubkey, x_pubkey) in enumerate(zip(pubkeys, x_pubkeys)):
                 if self.is_txin_complete(txin):

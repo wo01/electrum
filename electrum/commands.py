@@ -302,7 +302,7 @@ class Commands:
 
         outputs = [TxOutput(TYPE_ADDRESS, x['address'], int(x['value'])) for x in outputs]
         tx = Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
-        tx.sign(keypairs, self.wallet)
+        tx.sign(keypairs)
         return tx.as_dict()
 
     @command('wp')
@@ -314,7 +314,7 @@ class Commands:
             pubkey_bytes = ecc.ECPrivkey(privkey2).get_public_key_bytes(compressed=compressed)
             h160 = bitcoin.hash_160(pubkey_bytes)
             x_pubkey = 'fd' + bh2u(b'\x00' + h160)
-            tx.sign({x_pubkey:(privkey2, compressed)}, wallet)
+            tx.sign({x_pubkey:(privkey2, compressed)})
         else:
             self.wallet.sign_transaction(tx, password)
         return tx.as_dict()

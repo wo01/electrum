@@ -121,7 +121,7 @@ class Software_KeyStore(KeyStore):
             keypairs[k] = self.get_private_key(v, password)
         # Sign
         if keypairs:
-            tx.sign(keypairs, wallet)
+            tx.sign(keypairs)
 
     def update_password(self, old_password, new_password):
         raise NotImplementedError()  # implemented by subclasses
