@@ -10,7 +10,15 @@ Electrum for Koto - Lightweight Koto client
   Homepage: https://electrum.kotocoin.info/
 
 
-
+.. image:: https://travis-ci.org/wo01/electrum-koto.svg?branch=master
+    :target: https://travis-ci.org/wo01/electrum-koto
+    :alt: Build Status
+.. image:: https://coveralls.io/repos/github/wo01/electrum-koto/badge.svg?branch=master
+    :target: https://coveralls.io/github/wo01/electrum-koto?branch=master
+    :alt: Test coverage statistics
+.. image:: https://d322cqt584bo4o.cloudfront.net/electrum/localized.svg
+    :target: https://crowdin.com/project/electrum
+    :alt: Help translate Electrum online
 
 
 
