@@ -14,7 +14,7 @@ diff -crN yescrypt_python.orig/setup.py yescrypt_python/setup.py
   
   yescrypt_module = Extension('yescrypt',
                               sources = ['yescrypt.c'],
-!                             extra_compile_args=['-O2', '-DHAVE_DECL_BE64ENC'],
+!                             extra_compile_args=['-O2'],
                               include_dirs=['.'])
   
   setup (name = 'yescrypt',
