@@ -751,6 +751,7 @@ def deserialize(raw: str, force_full_parse=False) -> dict:
     n_ShieldedSpend = 0
     n_ShieldedOutput = 0
     if d['version'] >= 4:
+        d['saplingRaw'] = vds.get_remains()
         d['valueBalance'] = vds.read_int64()
         n_ShieldedSpend = vds.read_compact_size()
         d['shieldedSpend'] = [parse_ShieldedSpend(vds) for i in range(n_ShieldedSpend)]
@@ -812,6 +813,7 @@ class Transaction:
             self.versionGroupId = 0
             self.expiryHeight = 0
             self._joinsplitsraw = None
+            self._saplingraw = None
         elif height < constants.net.SAPLING_HEIGHT:
             self.version = 3
             self.overwintered = True
@@ -819,6 +821,7 @@ class Transaction:
             self.versionGroupId = 0x2E7D970
             self.expiryHeight = height + 20
             self._joinsplitsraw = b'\x00'
+            self._saplingraw = b'\x00'
         else:
             self.version = 4
             self.overwintered = True
@@ -826,6 +829,7 @@ class Transaction:
             self.versionGroupId = 0x9023E50A
             self.expiryHeight = height + 20
             self._joinsplitsraw = b'\x00'
+            self._saplingraw = b'\x00' * (8+1+1+1) # ValuBalance + spend + output + joinsplits
         self.locktime = 0
         # by default we assume this is a partial txn;
         # this value will get properly set when deserializing
@@ -950,6 +954,7 @@ class Transaction:
             self.expiryHeight = d['expiryHeight']
         if self.version >= 4:
             self._valueBalance = d['valueBalance']
+            self._saplingraw = d['saplingRaw']
         if self.version >= 2:
             self._vpub_new = sum(d['joinSplits'][x]['vpub_new'] for x in range(d['n_JSDescs']))
             self._joinsplits = d['joinSplits']
@@ -1287,6 +1292,7 @@ class Transaction:
         outputs = self.outputs()
         valueBalance = int_to_hex(self._valueBalance, 8)
         joinSplitsRaw = self._joinsplitsraw
+        saplingRaw = self._saplingraw
         txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.input_script(txin, estimate_size), withSig=withSig) for txin in inputs)
         txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
         use_segwit_ser_for_estimate_size = estimate_size and self.is_segwit(guess_for_address=True)
@@ -1303,7 +1309,8 @@ class Transaction:
             if self.overwintered:
                 header = header + nVersionGroupId + txins + txouts + nLocktime + nExpiryHeight
                 if self.saplinged:
-                    header = header + valueBalance + '00' + '00'
+                    header = header + saplingRaw.hex()
+                    return header
             else:
                 header = header + txins + txouts + nLocktime
             if self.version >= 2:
