@@ -266,6 +266,30 @@ class CoinChooserBase(PrintError):
     def choose_buckets(self, buckets, sufficient_funds, penalty_func):
         raise NotImplemented('To be subclassed')
 
+class CoinChooserOldestFirst(CoinChooserBase):
+    '''Maximize transaction priority. Select the oldest unspent
+    transaction outputs in your wallet, that are sufficient to cover
+    the spent amount. Then, remove any unneeded inputs, starting with
+    the smallest in value.
+    '''
+
+    def keys(self, coins):
+        return [coin['prevout_hash'] + ':' + str(coin['prevout_n'])
+                for coin in coins]
+
+    def choose_buckets(self, buckets, sufficient_funds, penalty_func):
+        '''Spend the oldest buckets first.'''
+        # Unconfirmed coins are young, not old
+        adj_height = lambda height: 99999999 if height <= 0 else height
+        buckets.sort(key = lambda b: max(adj_height(coin['height'])
+                                         for coin in b.coins))
+        selected = []
+        for bucket in buckets:
+            selected.append(bucket)
+            if sufficient_funds(selected):
+                return strip_unneeded(selected, sufficient_funds)
+        else:
+            raise NotEnoughFunds()
 
 class CoinChooserRandom(CoinChooserBase):
 
@@ -382,12 +406,13 @@ class CoinChooserPrivacy(CoinChooserRandom):
 
 COIN_CHOOSERS = {
     'Privacy': CoinChooserPrivacy,
+    'Priotiry': CoinChooserOldestFirst
 }
 
 def get_name(config):
     kind = config.get('coin_chooser')
     if not kind in COIN_CHOOSERS:
-        kind = 'Privacy'
+        kind = 'Priotiry'
     return kind
 
 def get_coin_chooser(config):
