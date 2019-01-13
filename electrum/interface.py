@@ -66,11 +66,12 @@ class NetworkTimeout:
 class NotificationSession(RPCSession):
 
     def __init__(self, *args, **kwargs):
-        super(NotificationSession, self).__init__(*args, **kwargs, framer=NewlineFramer(max_size=250*40000))
+        super(NotificationSession, self).__init__(*args, **kwargs)
         self.subscriptions = defaultdict(list)
         self.cache = {}
         self.in_flight_requests_semaphore = asyncio.Semaphore(100)
         self.default_timeout = NetworkTimeout.Generic.NORMAL
+        self.framer.max_size = 250 * 40000 # 10MB
 
     async def handle_request(self, request):
         # note: if server sends malformed request and we raise, the superclass
