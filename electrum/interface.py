@@ -32,7 +32,7 @@ from typing import Tuple, Union, List, TYPE_CHECKING, Optional
 from collections import defaultdict
 
 import aiorpcx
-from aiorpcx import RPCSession, Notification
+from aiorpcx import RPCSession, Notification, NewlineFramer
 import certifi
 
 from .util import PrintError, ignore_exceptions, log_exceptions, bfh, SilentTaskGroup
@@ -66,7 +66,7 @@ class NetworkTimeout:
 class NotificationSession(RPCSession):
 
     def __init__(self, *args, **kwargs):
-        super(NotificationSession, self).__init__(*args, **kwargs)
+        super(NotificationSession, self).__init__(*args, **kwargs, framer=NewlineFramer(max_size=250*40000))
         self.subscriptions = defaultdict(list)
         self.cache = {}
         self.in_flight_requests_semaphore = asyncio.Semaphore(100)
