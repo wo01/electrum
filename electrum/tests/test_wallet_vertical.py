@@ -324,6 +324,8 @@ class TestWalletSending(TestCaseForTestnet):
 
         class NetworkMock:
             relay_fee = 1000
+            def get_local_height(self): return 1325785
+            def get_server_height(self): return 1325785
             def run_from_another_thread(self, coro):
                 loop = asyncio.get_event_loop()
                 return loop.run_until_complete(coro)
