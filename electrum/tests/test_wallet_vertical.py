@@ -324,8 +324,6 @@ class TestWalletSending(TestCaseForTestnet):
 
         class NetworkMock:
             relay_fee = 1000
-            def get_local_height(self): return 1325785
-            def get_server_height(self): return 1325785
             def run_from_another_thread(self, coro):
                 loop = asyncio.get_event_loop()
                 return loop.run_until_complete(coro)
@@ -338,7 +336,7 @@ class TestWalletSending(TestCaseForTestnet):
         privkeys = ['93NQ7CFbwTPyKDJLXe97jczw33fiLijam2SCZL3Uinz1NSbHrTu', ]
         network = NetworkMock()
         dest_addr = 'kmNQZ6HERZfon4xeQq4WqneB4YwmGxqW6zy'
-        tx = sweep(privkeys, network, config=None, recipient=dest_addr, fee=5000)
+        tx = sweep(privkeys, network, config=None, recipient=dest_addr, fee=5000, locktime=1325785)
 
         tx_copy = Transaction(tx.serialize(), 100000)
         self.assertEqual('040000800ae523900129349e5641d79915e9d0282fdbaee8c3df0b6731bab9d70bf626e8588bde24ac01000000484730440220610965edc5a0b223d75d792fb75152af2079c7379b50c7f83f0781a345578ac80220595bc3cafbf282e421adb8fd44e65d00326859f5f0dfae560030c7a5c74f088301fdffffff01b82e0f00000000001976a9146702df3d1073c362f559b72c2785cb6f6b6a90b088acd93a1400ed3a14000000000000000000000000',
