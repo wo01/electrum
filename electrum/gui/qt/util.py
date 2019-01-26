@@ -827,11 +827,11 @@ class FromList(QTreeWidget):
 
 
 class UpdateCheck(QWidget, PrintError):
-    url = "https://electrum.org/version"
-    download_url = "https://electrum.org/#download"
+    url = "https://electrum.kotocoin.info/version"
+    download_url = "https://electrum.kotocoin.info"
 
     VERSION_ANNOUNCEMENT_SIGNING_KEYS = (
-        "13xjmVAB1EATPP8RshTE8S8sNwwSUM9p1P",
+        "k1214ahr6aE21cqfupPkDnYe4VXFSqH1Q8t",
     )
 
     def __init__(self, main_window, latest_version=None):
