@@ -831,7 +831,7 @@ class UpdateCheck(QWidget, PrintError):
     download_url = "https://electrum.kotocoin.info"
 
     VERSION_ANNOUNCEMENT_SIGNING_KEYS = (
-        "k1214ahr6aE21cqfupPkDnYe4VXFSqH1Q8t",
+        "k1K4SWcCrQ2iHguN9J8RKSRWoxkcqbEeEQx",
     )
 
     def __init__(self, main_window, latest_version=None):
