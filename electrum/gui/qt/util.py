@@ -6,7 +6,7 @@ import platform
 import queue
 import traceback
 from distutils.version import StrictVersion
-from functools import partial
+from functools import partial, lru_cache
 from typing import NamedTuple, Callable, Optional, TYPE_CHECKING
 import base64
 
@@ -16,8 +16,10 @@ from PyQt5.QtWidgets import *
 
 from electrum import version
 from electrum import ecc
+from electrum import constants
 from electrum.i18n import _, languages
-from electrum.util import FileImportFailed, FileExportFailed, make_aiohttp_session, PrintError
+from electrum.util import (FileImportFailed, FileExportFailed, make_aiohttp_session,
+                           PrintError, resource_path)
 from electrum.paymentrequest import PR_UNPAID, PR_PAID, PR_EXPIRED
 
 if TYPE_CHECKING:
@@ -35,9 +37,9 @@ else:
 dialogs = []
 
 pr_icons = {
-    PR_UNPAID:":icons/unpaid.png",
-    PR_PAID:":icons/confirmed.png",
-    PR_EXPIRED:":icons/expired.png"
+    PR_UNPAID:"unpaid.png",
+    PR_PAID:"confirmed.png",
+    PR_EXPIRED:"expired.png"
 }
 
 pr_tooltips = {
@@ -428,8 +430,6 @@ class MyTreeView(QTreeView):
         self.customContextMenuRequested.connect(create_menu)
         self.setUniformRowHeights(True)
 
-        self.icon_cache = IconCache()
-
         # Control which columns are editable
         if editable_columns is None:
             editable_columns = {stretch_column}
@@ -598,8 +598,9 @@ class ButtonsWidget(QWidget):
 
     def addButton(self, icon_name, on_click, tooltip):
         button = QToolButton(self)
-        button.setIcon(QIcon(icon_name))
+        button.setIcon(read_QIcon(icon_name))
         button.setIconSize(QSize(25,25))
+        button.setCursor(QCursor(Qt.PointingHandCursor))
         button.setStyleSheet("QToolButton { border: none; hover {border: 1px} pressed {border: 1px} padding: 0px; }")
         button.setVisible(True)
         button.setToolTip(tooltip)
@@ -609,7 +610,7 @@ class ButtonsWidget(QWidget):
 
     def addCopyButton(self, app):
         self.app = app
-        self.addButton(":icons/copy.png", self.on_copy, _("Copy to clipboard"))
+        self.addButton("copy.png", self.on_copy, _("Copy to clipboard"))
 
     def on_copy(self):
         self.app.clipboard().setText(self.text())
@@ -794,15 +795,14 @@ def get_parent_main_window(widget):
             return widget
     return None
 
-class IconCache:
 
-    def __init__(self):
-        self.__cache = {}
+def icon_path(icon_basename):
+    return resource_path('gui', 'icons', icon_basename)
 
-    def get(self, file_name):
-        if file_name not in self.__cache:
-            self.__cache[file_name] = QIcon(file_name)
-        return self.__cache[file_name]
+
+@lru_cache(maxsize=1000)
+def read_QIcon(icon_basename):
+    return QIcon(icon_path(icon_basename))
 
 
 def get_default_language():
@@ -845,6 +845,8 @@ class UpdateCheck(QWidget, PrintError):
         self.content.addWidget(self.heading_label)
 
         self.detail_label = QLabel()
+        self.detail_label.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
+        self.detail_label.setOpenExternalLinks(True)
         self.content.addWidget(self.detail_label)
 
         self.pb = QProgressBar()
@@ -923,9 +925,13 @@ class UpdateCheckThread(QThread, PrintError):
                 for address, sig in sigs.items():
                     if address not in UpdateCheck.VERSION_ANNOUNCEMENT_SIGNING_KEYS:
                         continue
+                    self.print_error(f"A '{address}'")
                     sig = base64.b64decode(sig)
+                    self.print_error(f"A '{sig}'")
                     msg = version_num.encode('utf-8')
-                    if ecc.verify_message_with_address(address=address, sig65=sig, message=msg):
+                    self.print_error(f"A '{msg}'")
+                    if ecc.verify_message_with_address(address=address, sig65=sig, message=msg,
+                                                       net=constants.KotoMainnet):
                         self.print_error(f"valid sig for version announcement '{version_num}' from address '{address}'")
                         break
                 else:

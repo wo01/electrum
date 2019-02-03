@@ -4,6 +4,3 @@
 [submodule "contrib/CalinsQRReader"]
 	path = contrib/osx/CalinsQRReader
 	url = https://github.com/spesmilo/CalinsQRReader
-[submodule "contrib/deterministic-build/electrum-icons"]
-	path = contrib/deterministic-build/electrum-icons
-	url = https://github.com/wo01/electrum-icons

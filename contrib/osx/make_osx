@@ -67,7 +67,6 @@ rm  -rf $BUILDDIR > /dev/null 2>&1
 mkdir $BUILDDIR
 
 cp -R ./contrib/deterministic-build/electrum-locale/locale/ ./electrum/locale/
-cp    ./contrib/deterministic-build/electrum-icons/icons_rc.py ./electrum/gui/qt/
 
 
 info "Downloading libusb..."
@@ -109,7 +108,7 @@ python3 -m pip install -Ir ./contrib/deterministic-build/requirements-hw.txt --u
 fail "Could not install hardware wallet requirements"
 
 info "Building $PACKAGE..."
-python3 setup.py install --user > /dev/null || fail "Could not build $PACKAGE"
+python3 -m pip install --user . > /dev/null || fail "Could not build $PACKAGE"
 
 info "Faking timestamps..."
 for d in ~/Library/Python/ ~/.pyenv .; do

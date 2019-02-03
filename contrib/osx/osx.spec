@@ -66,11 +66,18 @@ hiddenimports += collect_submodules('keepkeylib')
 hiddenimports += collect_submodules('websocket')
 hiddenimports += collect_submodules('ckcc')
 
+# safetlib imports PyQt5.Qt.  We use a local updated copy of pinmatrix.py until they
+# release a new version that includes https://github.com/archos-safe-t/python-safet/commit/b1eab3dba4c04fdfc1fcf17b66662c28c5f2380e
+hiddenimports.remove('safetlib.qt.pinmatrix')
+
+
 datas = [
     (electrum + PYPKG + '/*.json', PYPKG),
     (electrum + PYPKG + '/wordlist/english.txt', PYPKG + '/wordlist'),
     (electrum + PYPKG + '/locale', PYPKG + '/locale'),
     (electrum + PYPKG + '/plugins', PYPKG + '/plugins'),
+    (electrum + 'icons/*.png', 'icons'),
+    (electrum + 'icons/*.svg', 'icons'),
 ]
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('safetlib')

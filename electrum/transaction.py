@@ -964,11 +964,13 @@ class Transaction:
         return d
 
     @classmethod
-    def from_io(klass, inputs, outputs, height, locktime=0):
+    def from_io(klass, inputs, outputs, height, locktime=0, version=None):
         self = klass(None, height)
         self._inputs = inputs
         self._outputs = outputs
         self.locktime = locktime
+        if version is not None:
+            self.version = version
         self.BIP69_sort()
         return self
 
