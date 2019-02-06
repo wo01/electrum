@@ -16,7 +16,7 @@ LIBSECP_VERSION="452d8e4d2a2f9f1b5be6b02e18f1ba102e5ca0b4"
 
 
 VERSION=`git describe --tags --dirty --always`
-APPIMAGE="$DISTDIR/electrum-$VERSION-x86_64.AppImage"
+APPIMAGE="$DISTDIR/electrum-KOTO-$VERSION-x86_64.AppImage"
 
 rm -rf "$BUILDDIR"
 mkdir -p "$APPDIR" "$CACHEDIR" "$DISTDIR"
