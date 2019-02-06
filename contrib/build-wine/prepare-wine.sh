@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Please update these carefully, some versions won't work under Wine
-NSIS_FILENAME=nsis-3.03-setup.exe
+NSIS_FILENAME=nsis-3.04-setup.exe
 NSIS_URL=https://prdownloads.sourceforge.net/nsis/$NSIS_FILENAME?download
-NSIS_SHA256=bd3b15ab62ec6b0c7a00f46022d441af03277be893326f6fea8e212dc2d77743
+NSIS_SHA256=4e1db5a7400e348b1b46a4a11b6d9557fd84368e4ad3d4bc4c1be636c89638aa
 
 ZBAR_FILENAME=zbarw-20121031-setup.exe
 ZBAR_URL=https://sourceforge.net/projects/zbarw/files/$ZBAR_FILENAME/download
@@ -13,7 +13,7 @@ LIBUSB_FILENAME=libusb-1.0.22.7z
 LIBUSB_URL=https://prdownloads.sourceforge.net/project/libusb/libusb-1.0/libusb-1.0.22/$LIBUSB_FILENAME?download
 LIBUSB_SHA256=671f1a420757b4480e7fadc8313d6fb3cbb75ca00934c417c1efa6e77fb8779b
 
-PYTHON_VERSION=3.6.7
+PYTHON_VERSION=3.6.8
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
@@ -24,68 +24,14 @@ PYHOME="c:/$PYTHON_FOLDER"
 PYTHON="wine $PYHOME/python.exe -OO -B"
 
 
-# based on https://superuser.com/questions/497940/script-to-verify-a-signature-with-gpg
-verify_signature() {
-    local file=$1 keyring=$2 out=
-    if out=$(gpg --no-default-keyring --keyring "$keyring" --status-fd 1 --verify "$file" 2>/dev/null) &&
-       echo "$out" | grep -qs "^\[GNUPG:\] VALIDSIG "; then
-        return 0
-    else
-        echo "$out" >&2
-        exit 1
-    fi
-}
-
-verify_hash() {
-    local file=$1 expected_hash=$2
-    actual_hash=$(sha256sum $file | awk '{print $1}')
-    if [ "$actual_hash" == "$expected_hash" ]; then
-        return 0
-    else
-        echo "$file $actual_hash (unexpected hash)" >&2
-        rm "$file"
-        exit 1
-    fi
-}
-
-download_if_not_exist() {
-    local file_name=$1 url=$2
-    if [ ! -e $file_name ] ; then
-        wget -O $PWD/$file_name "$url"
-    fi
-}
-
-# https://github.com/travis-ci/travis-build/blob/master/lib/travis/build/templates/header.sh
-retry() {
-  local result=0
-  local count=1
-  while [ $count -le 3 ]; do
-    [ $result -ne 0 ] && {
-      echo -e "\nThe command \"$@\" failed. Retrying, $count of 3.\n" >&2
-    }
-    ! { "$@"; result=$?; }
-    [ $result -eq 0 ] && break
-    count=$(($count + 1))
-    sleep 1
-  done
-
-  [ $count -gt 3 ] && {
-    echo -e "\nThe command \"$@\" failed 3 times.\n" >&2
-  }
-
-  return $result
-}
-
 # Let's begin!
-here=$(dirname $(readlink -e $0))
+here="$(dirname "$(readlink -e "$0")")"
 set -e
+
+. $here/../build_tools_util.sh
 
 wine 'wineboot'
 
-# HACK to work around https://bugs.winehq.org/show_bug.cgi?id=42474#c22
-# needed for python 3.6+
-rm -f /opt/wine-stable/lib/wine/fakedlls/api-ms-win-core-path-l1-1-0.dll
-rm -f /opt/wine-stable/lib/wine/api-ms-win-core-path-l1-1-0.dll.so
 
 cd /tmp/electrum-build
 
@@ -109,11 +55,9 @@ for msifile in core dev exe lib pip tools; do
     wine msiexec /i "${msifile}.msi" /qb TARGETDIR=$PYHOME
 done
 
-# upgrade pip
-$PYTHON -m pip install pip --upgrade
-
-
-$PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
+# Install dependencies specific to binaries
+# note that this also installs pinned versions of both pip and setuptools
+$PYTHON -m pip install -r "$here"/../deterministic-build/requirements-binaries.txt
 
 # Install PyInstaller
 $PYTHON -m pip install pyinstaller==3.4 --no-use-pep517
@@ -122,9 +66,6 @@ $PYTHON -m pip install pyinstaller==3.4 --no-use-pep517
 download_if_not_exist $ZBAR_FILENAME "$ZBAR_URL"
 verify_hash $ZBAR_FILENAME "$ZBAR_SHA256"
 wine "$PWD/$ZBAR_FILENAME" /S
-
-# Upgrade setuptools (so Electrum can be installed later)
-$PYTHON -m pip install setuptools --upgrade
 
 # Install NSIS installer
 download_if_not_exist $NSIS_FILENAME "$NSIS_URL"
