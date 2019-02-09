@@ -111,7 +111,7 @@ Section
   
   ;Files to pack into the installer
   File /r "dist\electrum\*.*"
-  File "c:\electrum\electrum\gui\icons\kotocolor_back.ico"
+  File "c:\electrum-koto\electrum\gui\icons\kotocolor_back.ico"
 
   ;Store installation folder
   WriteRegStr HKCU "Software\${PRODUCT_NAME}" "" $INSTDIR
