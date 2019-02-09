@@ -35,10 +35,10 @@ requirements = python3, android, openssl, plyer, kivy==b47f669f44dbda4f463bcb7d2
 
 # (str) Presplash of the application
 #presplash.filename = %(source.dir)s/gui/kivy/theming/splash.png
-presplash.filename = %(source.dir)s/icons/koto_presplash.png
+presplash.filename = %(source.dir)s/electrum/gui/icons/koto_presplash.png
 
 # (str) Icon of the application
-icon.filename = %(source.dir)s/icons/kotocolor/128x128.png
+icon.filename = %(source.dir)s/electrum/gui/icons/kotocolor/128x128.png
 
 # (str) Supported orientation (one of landscape, portrait or all)
 orientation = portrait

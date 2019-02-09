@@ -47,7 +47,7 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
             usr_share = os.path.expanduser('~/.local/share')
     data_files += [
         (os.path.join(usr_share, 'applications/'), ['electrum.desktop']),
-        (os.path.join(usr_share, icons_dirname), ['icons/kotocolor.png']),
+        (os.path.join(usr_share, icons_dirname), ['electrum/gui/icons/kotocolor.png']),
     ]
 
 extras_require = {
