@@ -43,7 +43,8 @@ from aiohttp import ClientResponse
 
 from . import util
 from .util import (PrintError, print_error, log_exceptions, ignore_exceptions,
-                   bfh, SilentTaskGroup, make_aiohttp_session, send_exception_to_crash_reporter)
+                   bfh, SilentTaskGroup, make_aiohttp_session, send_exception_to_crash_reporter,
+                   is_hash256_str, is_non_negative_integer)
 
 from .bitcoin import COIN
 from . import constants
@@ -195,6 +196,17 @@ class TxBroadcastUnknownError(TxBroadcastError):
                     _("Consider trying to connect to a different server, or updating Electrum."))
 
 
+class UntrustedServerReturnedError(Exception):
+    def __init__(self, *, original_exception):
+        self.original_exception = original_exception
+
+    def __str__(self):
+        return _("The server returned an error.")
+
+    def __repr__(self):
+        return f"<UntrustedServerReturnedError original_exception: {repr(self.original_exception)}>"
+
+
 INSTANCE = None
 
 
@@ -263,6 +275,9 @@ class Network(PrintError):
         self.connecting = set()
         self.server_queue = None
         self.proxy = None
+
+        # Dump network messages (all interfaces).  Set at runtime from the console.
+        self.debug = False
 
         self._set_status('disconnected')
 
@@ -764,8 +779,21 @@ class Network(PrintError):
             raise BestEffortRequestFailed('no interface to do request on... gave up.')
         return make_reliable_wrapper
 
+    def catch_server_exceptions(func):
+        async def wrapper(self, *args, **kwargs):
+            try:
+                return await func(self, *args, **kwargs)
+            except aiorpcx.jsonrpc.CodeMessageError as e:
+                raise UntrustedServerReturnedError(original_exception=e)
+        return wrapper
+
     @best_effort_reliable
+    @catch_server_exceptions
     async def get_merkle_for_transaction(self, tx_hash: str, tx_height: int) -> dict:
+        if not is_hash256_str(tx_hash):
+            raise Exception(f"{repr(tx_hash)} is not a txid")
+        if not is_non_negative_integer(tx_height):
+            raise Exception(f"{repr(tx_height)} is not a block height")
         return await self.interface.session.send_request('blockchain.transaction.get_merkle', [tx_hash, tx_height])
 
     @best_effort_reliable
@@ -799,7 +827,7 @@ class Network(PrintError):
         # grep "reason ="
         policy_error_messages = {
             r"version": _("Transaction uses non-standard version."),
-            r"tx-size": _("The transaction was rejected because it is too large."),
+            r"tx-size": _("The transaction was rejected because it is too large (in bytes)."),
             r"scriptsig-size": None,
             r"scriptsig-not-pushonly": None,
             r"scriptpubkey": None,
@@ -923,24 +951,39 @@ class Network(PrintError):
         return _("Unknown error")
 
     @best_effort_reliable
-    async def request_chunk(self, height, tip=None, *, can_return_early=False):
+    @catch_server_exceptions
+    async def request_chunk(self, height: int, tip=None, *, can_return_early=False):
+        if not is_non_negative_integer(height):
+            raise Exception(f"{repr(height)} is not a block height")
         return await self.interface.request_chunk(height, tip=tip, can_return_early=can_return_early)
 
     @best_effort_reliable
+    @catch_server_exceptions
     async def get_transaction(self, tx_hash: str, *, timeout=None) -> str:
+        if not is_hash256_str(tx_hash):
+            raise Exception(f"{repr(tx_hash)} is not a txid")
         return await self.interface.session.send_request('blockchain.transaction.get', [tx_hash],
                                                          timeout=timeout)
 
     @best_effort_reliable
+    @catch_server_exceptions
     async def get_history_for_scripthash(self, sh: str) -> List[dict]:
+        if not is_hash256_str(sh):
+            raise Exception(f"{repr(sh)} is not a scripthash")
         return await self.interface.session.send_request('blockchain.scripthash.get_history', [sh])
 
     @best_effort_reliable
+    @catch_server_exceptions
     async def listunspent_for_scripthash(self, sh: str) -> List[dict]:
+        if not is_hash256_str(sh):
+            raise Exception(f"{repr(sh)} is not a scripthash")
         return await self.interface.session.send_request('blockchain.scripthash.listunspent', [sh])
 
     @best_effort_reliable
+    @catch_server_exceptions
     async def get_balance_for_scripthash(self, sh: str) -> dict:
+        if not is_hash256_str(sh):
+            raise Exception(f"{repr(sh)} is not a scripthash")
         return await self.interface.session.send_request('blockchain.scripthash.get_balance', [sh])
 
     def blockchain(self) -> Blockchain:
