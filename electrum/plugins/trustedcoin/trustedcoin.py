@@ -29,7 +29,7 @@ import base64
 import time
 import hashlib
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, Union
 
 from urllib.parse import urljoin
 from urllib.parse import quote
@@ -45,7 +45,7 @@ from electrum.mnemonic import Mnemonic
 from electrum.wallet import Multisig_Wallet, Deterministic_Wallet
 from electrum.i18n import _
 from electrum.plugin import BasePlugin, hook
-from electrum.util import NotEnoughFunds, UserFacingException
+from electrum.util import NotEnoughFunds, UserFacingException, PrintError
 from electrum.storage import STO_EV_USER_PW
 from electrum.network import Network
 from electrum.base_wizard import BaseWizard
@@ -108,10 +108,18 @@ class TrustedCoinException(Exception):
 
 
 class ErrorConnectingServer(Exception):
-    pass
+    def __init__(self, reason: Union[str, Exception] = None):
+        self.reason = reason
+
+    def __str__(self):
+        header = _("Error connecting to {} server").format('TrustedCoin')
+        reason = self.reason
+        if isinstance(reason, BaseException):
+            reason = repr(reason)
+        return f"{header}:\n{reason}" if reason else header
 
 
-class TrustedCoinCosignerClient(object):
+class TrustedCoinCosignerClient(PrintError):
     def __init__(self, user_agent=None, base_url='https://api.trustedcoin.com/2/'):
         self.base_url = base_url
         self.debug = False
@@ -136,21 +144,25 @@ class TrustedCoinCosignerClient(object):
             raise ErrorConnectingServer('You are offline.')
         url = urljoin(self.base_url, relative_url)
         if self.debug:
-            print('%s %s %s' % (method, url, data))
+            self.print_error(f'<-- {method} {url} {data}')
         headers = {}
         if self.user_agent:
             headers['user-agent'] = self.user_agent
         try:
             if method == 'get':
-                return Network.send_http_on_proxy(method, url, params=data, headers=headers, on_finish=self.handle_response)
+                response = Network.send_http_on_proxy(method, url, params=data, headers=headers, on_finish=self.handle_response)
             elif method == 'post':
-                return Network.send_http_on_proxy(method, url, json=data, headers=headers, on_finish=self.handle_response)
+                response = Network.send_http_on_proxy(method, url, json=data, headers=headers, on_finish=self.handle_response)
             else:
                 assert False
         except TrustedCoinException:
             raise
         except Exception as e:
             raise ErrorConnectingServer(e)
+        else:
+            if self.debug:
+                self.print_error(f'--> {response}')
+            return response
 
     def get_terms_of_service(self, billing_plan='electrum-per-tx-otp'):
         """
@@ -456,7 +468,7 @@ class TrustedCoinPlugin(BasePlugin):
         try:
             billing_info = server.get(wallet.get_user_id()[1])
         except ErrorConnectingServer as e:
-            self.print_error('cannot connect to TrustedCoin server: {}'.format(repr(e)))
+            self.print_error(str(e))
             return
         billing_index = billing_info['billing_index']
         # add segwit billing address; this will be used for actual billing
