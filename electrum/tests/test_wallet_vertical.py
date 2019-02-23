@@ -11,6 +11,7 @@ from electrum.address_synchronizer import TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_UNCON
 from electrum.wallet import sweep, Multisig_Wallet, Standard_Wallet, Imported_Wallet
 from electrum.util import bfh, bh2u
 from electrum.transaction import TxOutput
+from electrum.mnemonic import seed_type
 
 from electrum.plugins.trustedcoin import trustedcoin
 
@@ -80,7 +81,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
     @mock.patch.object(storage.WalletStorage, '_write')
     def test_electrum_seed_standard(self, mock_write):
         seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
-        self.assertEqual(bitcoin.seed_type(seed_words), 'standard')
+        self.assertEqual(seed_type(seed_words), 'standard')
 
         ks = keystore.from_seed(seed_words, '', False)
 
@@ -100,7 +101,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
     @mock.patch.object(storage.WalletStorage, '_write')
     def test_electrum_seed_old(self, mock_write):
         seed_words = 'powerful random nobody notice nothing important anyway look away hidden message over'
-        self.assertEqual(bitcoin.seed_type(seed_words), 'old')
+        self.assertEqual(seed_type(seed_words), 'old')
 
         ks = keystore.from_seed(seed_words, '', False)
 
@@ -119,7 +120,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
     @mock.patch.object(storage.WalletStorage, '_write')
     def test_electrum_seed_2fa_legacy(self, mock_write):
         seed_words = 'kiss live scene rude gate step hip quarter bunker oxygen motor glove'
-        self.assertEqual(bitcoin.seed_type(seed_words), '2fa')
+        self.assertEqual(seed_type(seed_words), '2fa')
 
         xprv1, xpub1, xprv2, xpub2 = trustedcoin.TrustedCoinPlugin.xkeys_from_seed(seed_words, '')
 
@@ -192,7 +193,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
     @mock.patch.object(storage.WalletStorage, '_write')
     def test_electrum_multisig_seed_standard(self, mock_write):
         seed_words = 'blast uniform dragon fiscal ensure vast young utility dinosaur abandon rookie sure'
-        self.assertEqual(bitcoin.seed_type(seed_words), 'standard')
+        self.assertEqual(seed_type(seed_words), 'standard')
 
         ks1 = keystore.from_seed(seed_words, '', True)
         WalletIntegrityHelper.check_seeded_keystore_sanity(self, ks1)
