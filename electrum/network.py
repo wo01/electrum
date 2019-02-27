@@ -30,6 +30,7 @@ import threading
 import socket
 import json
 import sys
+import platform
 import ipaddress
 import asyncio
 from typing import NamedTuple, Optional, Sequence, List, Dict, Tuple
@@ -504,7 +505,7 @@ class Network(PrintError):
             # prevent dns leaks, see http://stackoverflow.com/questions/13184205/dns-over-proxy
             socket.getaddrinfo = lambda *args: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (args[0], args[1]))]
         else:
-            if sys.platform == 'win32':
+            if sys.platform == 'win32' and platform.machine() == 'AMD64':
                 # On Windows, socket.getaddrinfo takes a mutex, and might hold it for up to 10 seconds
                 # when dns-resolving. To speed it up drastically, we resolve dns ourselves, outside that lock.
                 # see #4421
