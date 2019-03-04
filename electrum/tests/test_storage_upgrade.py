@@ -3,6 +3,7 @@ import tempfile
 
 from electrum.storage import WalletStorage
 from electrum.wallet import Wallet
+from electrum import constants
 
 from .test_wallet import WalletTestCase
 
@@ -11,14 +12,22 @@ from .test_wallet import WalletTestCase
 # TODO hw wallet with client version 2.6.x (single-, and multiacc)
 class TestStorageUpgrade(WalletTestCase):
 
-    def test_upgrade_from_client_3_2_2_seeded(self):
+    def testnet_wallet(func):
+        # note: it's ok to modify global network constants in subclasses of SequentialTestCase
+        def wrapper(self, *args, **kwargs):
+            constants.set_testnet()
+            try:
+                return func(self, *args, **kwargs)
+            finally:
+                constants.set_mainnet()
+        return wrapper
 
+    def test_upgrade_from_client_3_2_2_seeded(self):
         wallet_str = '{"addr_history":{"jzx3JSH5goW4BzBrZx6jzc33CTuGFWPhZHG":[],"jzy4jRnRyipLJjmKUohA9LfBxgY5Cckjrt6":[],"jzyYwo4h4DDPciPDHK9HRW8nLGBhCSmuTUC":[],"jzz7ykr7BF2uwMwQuwPYF62VgMTUgkx4UnV":[],"jzzantXiovyUcYRMYBcTDQTdRrbT4EeRLii":[],"k11JBnsANuSZwitcz249zKHhLbphdivKSkv":[],"k11XHvyz9mFpVPPfYzijNtaLePpNB5drJ2Z":[],"k125oeKN6W1wWgap8dRaGPipiYaDbNNMcLx":[],"k14dqjy5peppbGfto1xbVTbD8k9KYEvZ58x":[],"k15XuMUBEcZevDYSxHwgmVw9XcMEKZmKLN4":[],"k15cg8HPrMuMh79mz5UeZmxYveZ5QAYUKsx":[],"k16Qfsb6uH8FsRf6eKnA22CPDFUiwPLWNRm":[],"k16paU3g1TjiXesH3JFdYRABFurHeJoYVqm":[],"k16t4BoN134gtcNv3fuLCosBQTgRqcB39YC":[],"k1AkMSij9D7NVSCnrRnAzcktniZ2jBinkQd":[],"k1AuWRToySeNXjqgUyUGEJb2PnURzAxJGeA":[],"k1DHkBmCAEHy5QdL6xewAzHNLEiVKkHjZne":[],"k1DMNRquMo3VKtLNboBe8sXxSTwFJqP7cWc":[],"k1DYJZyH6sDfLD8nmr5jh758gGVFxDTDch1":[],"k1EuzCVqzL5hC4cMrnbBEB8E4xnNP1T4rEU":[],"k1FMWC2BevqujHvdYXmzdT3QP6ehBYwuih7":[],"k1GEpheQi2cKfLoSFBAk5NL9fHrQ8uuabi2":[],"k1GeVJh3gx1jJmBR9fEGvKiFH6dySMEeMkZ":[],"k1Gg1yQyJSjbR546oFtffHyA76ZcQ1bV9QQ":[],"k1JqdiEtDGF96ucC8VnEqhSxLahM8SGxSBu":[],"k1Lbf3D9f6SGLUrZFZ4E9M8FunbhE1qSdMs":[]},"addresses":{"change":["k1DYJZyH6sDfLD8nmr5jh758gGVFxDTDch1","k1DHkBmCAEHy5QdL6xewAzHNLEiVKkHjZne","k125oeKN6W1wWgap8dRaGPipiYaDbNNMcLx","k16t4BoN134gtcNv3fuLCosBQTgRqcB39YC","k16paU3g1TjiXesH3JFdYRABFurHeJoYVqm","k1FMWC2BevqujHvdYXmzdT3QP6ehBYwuih7"],"receiving":["k11XHvyz9mFpVPPfYzijNtaLePpNB5drJ2Z","jzz7ykr7BF2uwMwQuwPYF62VgMTUgkx4UnV","k16Qfsb6uH8FsRf6eKnA22CPDFUiwPLWNRm","k1EuzCVqzL5hC4cMrnbBEB8E4xnNP1T4rEU","k1Lbf3D9f6SGLUrZFZ4E9M8FunbhE1qSdMs","jzzantXiovyUcYRMYBcTDQTdRrbT4EeRLii","k1GEpheQi2cKfLoSFBAk5NL9fHrQ8uuabi2","jzy4jRnRyipLJjmKUohA9LfBxgY5Cckjrt6","jzyYwo4h4DDPciPDHK9HRW8nLGBhCSmuTUC","k11JBnsANuSZwitcz249zKHhLbphdivKSkv","k1Gg1yQyJSjbR546oFtffHyA76ZcQ1bV9QQ","k14dqjy5peppbGfto1xbVTbD8k9KYEvZ58x","k1AuWRToySeNXjqgUyUGEJb2PnURzAxJGeA","k15XuMUBEcZevDYSxHwgmVw9XcMEKZmKLN4","k1GeVJh3gx1jJmBR9fEGvKiFH6dySMEeMkZ","k15cg8HPrMuMh79mz5UeZmxYveZ5QAYUKsx","jzx3JSH5goW4BzBrZx6jzc33CTuGFWPhZHG","k1AkMSij9D7NVSCnrRnAzcktniZ2jBinkQd","k1DMNRquMo3VKtLNboBe8sXxSTwFJqP7cWc","k1JqdiEtDGF96ucC8VnEqhSxLahM8SGxSBu"]},"keystore":{"pw_hash_version":2,"seed":"cereal wise two govern top pet frog nut rule sketch bundle logic","type":"bip32","xprv":"xprv9s21ZrQH143K29XjRjUs6MnDB9wXjXbJP2kG1fnRk8zjdDYWqVkQYUqaDtgZp5zPSrH5PZQJs8sU25HrUgT1WdgsPU8GbifKurtMYg37d4v","xpub":"xpub661MyMwAqRbcEdcCXm1sTViwjBn28zK9kFfrp4C3JUXiW1sfP34f6HA45B9yr7EH5XGzWuTfMTdqpt9XPrVQVUdgiYb5NW9m8ij1FSZgGBF"},"seed_type":"standard","seed_version":18,"spent_outpoints":{},"stored_height":522210,"transactions":{},"tx_fees":{},"txi":{},"txo":{},"use_encryption":false,"verified_tx3":{},"wallet_type":"standard","winpos-qt":[823,202,840,400]}'
         self._upgrade_storage(wallet_str)
 
     def test_upgrade_from_client_3_2_2_importedkeys(self):
         wallet_str = '{"addr_history":{"jzyvb3tU9tE8gmsngH6PW7NtgL7tAo13fq1":[],"k123VxhnLHSuoWs1dKGF8nQ4jj25nVYfJBL":[],"k1BoBd3dMv1JT9v6dUx5CiUkSUs9TF1Dzi7":[]},"addresses":{"jzyvb3tU9tE8gmsngH6PW7NtgL7tAo13fq1":{"pubkey":"0344b1588589958b0bcab03435061539e9bcf54677c104904044e4f8901f4ebdf5","redeem_script":null,"type":"p2pkh"},"k123VxhnLHSuoWs1dKGF8nQ4jj25nVYfJBL":{"pubkey":"04575f52b82f159fa649d2a4c353eb7435f30206f0a6cb9674fbd659f45082c37d559ffd19bea9c0d3b7dcc07a7b79f4cffb76026d5d4dff35341efe99056e22d2","redeem_script":null,"type":"p2pkh"},"k1BoBd3dMv1JT9v6dUx5CiUkSUs9TF1Dzi7":{"pubkey":"0389508c13999d08ffae0f434a085f4185922d64765c0bff2f66e36ad7f745cc5f","redeem_script":null,"type":"p2pkh"}},"keystore":{"keypairs":{"0344b1588589958b0bcab03435061539e9bcf54677c104904044e4f8901f4ebdf5":"L2sED74axVXC4H8szBJ4rQJrkfem7UMc6usLCPUoEWxDCFGUaGUM","0389508c13999d08ffae0f434a085f4185922d64765c0bff2f66e36ad7f745cc5f":"L3Gi6EQLvYw8gEEUckmqawkevfj9s8hxoQDFveQJGZHTfyWnbk1U","04575f52b82f159fa649d2a4c353eb7435f30206f0a6cb9674fbd659f45082c37d559ffd19bea9c0d3b7dcc07a7b79f4cffb76026d5d4dff35341efe99056e22d2":"5JyVyXU1LiRXATvRTQvR9Kp8Rx1X84j2x49iGkjSsXipydtByUq"},"pw_hash_version":2,"type":"imported"},"seed_version":18,"spent_outpoints":{},"transactions":{},"tx_fees":{},"txi":{},"txo":{},"use_encryption":false,"verified_tx3":{},"wallet_type":"imported"}'
-        self._upgrade_storage(wallet_str)
 
     def test_upgrade_from_client_3_2_2_watchaddresses(self):
         wallet_str = '{"addr_history":{"k15SSr9dJETnjuj97mZJA2EQFiY8ss67JvL":[],"k1DKzMLXyGZfcX5rYiUT5XMBMwfefiYR7No":[],"k1DNUhxZnQudZNDE4zU3xwbwKza3tkyro2w":[]},"addresses":{"k15SSr9dJETnjuj97mZJA2EQFiY8ss67JvL":{},"k1DKzMLXyGZfcX5rYiUT5XMBMwfefiYR7No":{},"k1DNUhxZnQudZNDE4zU3xwbwKza3tkyro2w":{}},"seed_version":18,"spent_outpoints":{},"transactions":{},"tx_fees":{},"txi":{},"txo":{},"wallet_type":"imported"}'
