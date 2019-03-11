@@ -138,7 +138,9 @@ class Commands:
 
     @command('')
     def create(self, passphrase=None, password=None, encrypt_file=True, segwit=False):
-        """Create a new wallet"""
+        """Create a new wallet.
+        If you want to be prompted for an argument, type '?' or ':' (concealed)
+        """
         d = create_new_wallet(path=self.config.get_wallet_path(),
                               passphrase=passphrase,
                               password=password,
@@ -153,9 +155,10 @@ class Commands:
     @command('')
     def restore(self, text, passphrase=None, password=None, encrypt_file=True):
         """Restore a wallet from text. Text can be a seed phrase, a master
-        public key, a master private key, a list of koto addresses
-        or koto private keys. If you want to be prompted for your
-        seed, type '?' or ':' (concealed) """
+        public key, a master private key, a list of bitcoin addresses
+        or bitcoin private keys.
+        If you want to be prompted for an argument, type '?' or ':' (concealed)
+        """
         d = restore_wallet_from_text(text,
                                      path=self.config.get_wallet_path(),
                                      passphrase=passphrase,
