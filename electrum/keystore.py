@@ -451,14 +451,15 @@ class Old_KeyStore(Deterministic_KeyStore):
 
     def get_private_key(self, sequence, password):
         seed = self.get_hex_seed(password)
-        self.check_seed(seed)
-        for_change, n = sequence
         secexp = self.stretch_key(seed)
+        self.check_seed(seed, secexp=secexp)
+        for_change, n = sequence
         pk = self.get_private_key_from_stretched_exponent(for_change, n, secexp)
         return pk, False
 
-    def check_seed(self, seed):
-        secexp = self.stretch_key(seed)
+    def check_seed(self, seed, *, secexp=None):
+        if secexp is None:
+            secexp = self.stretch_key(seed)
         master_private_key = ecc.ECPrivkey.from_secret_scalar(secexp)
         master_public_key = master_private_key.get_public_key_bytes(compressed=False)[1:]
         if master_public_key != bfh(self.mpk):
@@ -751,19 +752,21 @@ def is_address_list(text):
     return bool(parts) and all(bitcoin.is_address(x) for x in parts)
 
 
-def get_private_keys(text, *, allow_spaces_inside_key=True):
+def get_private_keys(text, *, allow_spaces_inside_key=True, raise_on_error=False):
     if allow_spaces_inside_key:  # see #1612
         parts = text.split('\n')
         parts = map(lambda x: ''.join(x.split()), parts)
         parts = list(filter(bool, parts))
     else:
         parts = text.split()
-    if bool(parts) and all(bitcoin.is_private_key(x) for x in parts):
+    if bool(parts) and all(bitcoin.is_private_key(x, raise_on_error=raise_on_error) for x in parts):
         return parts
 
 
-def is_private_key_list(text, *, allow_spaces_inside_key=True):
-    return bool(get_private_keys(text, allow_spaces_inside_key=allow_spaces_inside_key))
+def is_private_key_list(text, *, allow_spaces_inside_key=True, raise_on_error=False):
+    return bool(get_private_keys(text,
+                                 allow_spaces_inside_key=allow_spaces_inside_key,
+                                 raise_on_error=raise_on_error))
 
 
 is_mpk = lambda x: is_old_mpk(x) or is_xpub(x)

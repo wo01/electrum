@@ -89,6 +89,7 @@ class InvoiceList(MyTreeView):
             b = len(inv_list) > 0
             self.setVisible(b)
             self.parent.invoices_label.setVisible(b)
+        self.filter()
 
     def import_invoices(self):
         import_meta_gui(self.parent, _('invoices'), self.parent.invoices.import_file, self.update)
@@ -109,6 +110,8 @@ class InvoiceList(MyTreeView):
         status = self.parent.invoices.get_status(key)
         menu = QMenu(self)
         if column_data:
+            if column == self.Columns.AMOUNT:
+                column_data = column_data.strip()
             menu.addAction(_("Copy {}").format(column_title), lambda: self.parent.app.clipboard().setText(column_data))
         menu.addAction(_("Details"), lambda: self.parent.show_invoice(key))
         if status == PR_UNPAID:

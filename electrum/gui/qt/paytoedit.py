@@ -37,7 +37,7 @@ from .qrtextedit import ScanQRTextEdit
 from .completion_text_edit import CompletionTextEdit
 from . import util
 
-RE_ALIAS = '(.*?)\s*\<([0-9A-Za-z]{1,})\>'
+RE_ALIAS = r'(.*?)\s*\<([0-9A-Za-z]{1,})\>'
 
 frozen_style = "QWidget { background-color:none; border:none;}"
 normal_style = "QPlainTextEdit { }"
@@ -152,11 +152,11 @@ class PayToEdit(CompletionTextEdit, ScanQRTextEdit, PrintError):
             else:
                 total += output.value
 
-        self.win.is_max = is_max
+        self.win.max_button.setChecked(is_max)
         self.outputs = outputs
         self.payto_address = None
 
-        if self.win.is_max:
+        if self.win.max_button.isChecked():
             self.win.do_update_fee()
         else:
             self.amount_edit.setAmount(total if outputs else None)
