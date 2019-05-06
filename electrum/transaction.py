@@ -1371,7 +1371,6 @@ class Transaction:
         self.raw = self.serialize()
 
     def sign_txin(self, txin_index, privkey_bytes) -> str:
-        print_error(self.overwintered)
         if self.overwintered:
             if self.saplinged:
                 h = blake2b(digest_size=32, person=SAPLING_HASH_PERSON)
@@ -1379,7 +1378,6 @@ class Transaction:
                 h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
             h.update(bfh(self.serialize_preimage(txin_index)))
             pre_hash = h.digest()
-            print_error(pre_hash)
         else:
             pre_hash = sha256d(bfh(self.serialize_preimage(txin_index)))
         privkey = ecc.ECPrivkey(privkey_bytes)
