@@ -225,6 +225,8 @@ class Network(Logger):
     servers, each connected socket is handled by an Interface() object.
     """
 
+    LOGGING_SHORTCUT = 'n'
+
     def __init__(self, config: SimpleConfig=None):
         global INSTANCE
         INSTANCE = self
