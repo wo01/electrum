@@ -10,7 +10,7 @@ from io import StringIO
 from electrum.storage import WalletStorage
 from electrum.json_db import FINAL_SEED_VERSION
 from electrum.wallet import (Abstract_Wallet, Standard_Wallet, create_new_wallet,
-                             restore_wallet_from_text)
+                             restore_wallet_from_text, Imported_Wallet)
 from electrum.exchange_rate import ExchangeBase, FxThread
 from electrum.util import TxMinedInfo
 from electrum.bitcoin import COIN
@@ -197,16 +197,22 @@ class TestCreateRestoreWallet(WalletTestCase):
     def test_restore_wallet_from_text_addresses(self):
         text = 'k1Jz8MzNeHnxNrXiNuXVfvBPTYCNNFyHr5R k1KvkHhFABPmyuGuBxJXioNenzVxVDyzaV3'
         d = restore_wallet_from_text(text, path=self.wallet_path, network=None)
-        wallet = d['wallet']  # type: Abstract_Wallet
+        wallet = d['wallet']  # type: Imported_Wallet
         self.assertEqual('k1Jz8MzNeHnxNrXiNuXVfvBPTYCNNFyHr5R', wallet.get_receiving_addresses()[0])
         self.assertEqual(2, len(wallet.get_receiving_addresses()))
+        # also test addr deletion
+        wallet.delete_address('bc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu66960c')
+        self.assertEqual(1, len(wallet.get_receiving_addresses()))
 
     def test_restore_wallet_from_text_privkeys(self):
         text = 'p2pkh:KzqEomvbm18p78JUySciEKHt56D8M26Go78Tftr51G8tALBmajLF p2pkh:KytmgPCUPtX2Ak8wRux2jHZE4HafHQAWEU4EwpK55M8hT7wNSNet'
         d = restore_wallet_from_text(text, path=self.wallet_path, network=None)
-        wallet = d['wallet']  # type: Abstract_Wallet
+        wallet = d['wallet']  # type: Imported_Wallet
         addr0 = wallet.get_receiving_addresses()[0]
         self.assertEqual('k1Jz8MzNeHnxNrXiNuXVfvBPTYCNNFyHr5R', addr0)
         self.assertEqual('p2pkh:KzqEomvbm18p78JUySciEKHt56D8M26Go78Tftr51G8tALBmajLF',
                          wallet.export_private_key(addr0, password=None)[0])
         self.assertEqual(2, len(wallet.get_receiving_addresses()))
+        # also test addr deletion
+        wallet.delete_address('bc1qnp78h78vp92pwdwq5xvh8eprlga5q8gu66960c')
+        self.assertEqual(1, len(wallet.get_receiving_addresses()))
