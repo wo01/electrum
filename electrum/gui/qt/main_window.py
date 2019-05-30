@@ -60,7 +60,8 @@ from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
                            base_units, base_units_list, base_unit_name_to_decimal_point,
                            decimal_point_to_base_unit_name, quantize_feerate,
                            UnknownBaseUnit, DECIMAL_POINT_DEFAULT, UserFacingException,
-                           get_new_wallet_name, send_exception_to_crash_reporter)
+                           get_new_wallet_name, send_exception_to_crash_reporter,
+                           InvalidBitcoinURI)
 from electrum.transaction import Transaction, TxOutput
 from electrum.address_synchronizer import AddTransactionException
 from electrum.wallet import (Multisig_Wallet, CannotBumpFee, Abstract_Wallet,
@@ -906,6 +907,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         msg = _('Bitcoin address where the payment should be received. Note that each payment request uses a different Bitcoin address.')
         self.receive_address_label = HelpLabel(_('Receiving address'), msg)
         self.receive_address_e.textChanged.connect(self.update_receive_qr)
+        self.receive_address_e.textChanged.connect(self.update_receive_address_styling)
         self.receive_address_e.setFocusPolicy(Qt.ClickFocus)
         grid.addWidget(self.receive_address_label, 0, 0)
         grid.addWidget(self.receive_address_e, 0, 1, 1, -1)
@@ -1150,6 +1152,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.receive_qr.setData(uri)
         if self.qr_window and self.qr_window.isVisible():
             self.qr_window.qrw.setData(uri)
+
+    def update_receive_address_styling(self):
+        addr = str(self.receive_address_e.text())
+        if self.wallet.is_used(addr):
+            self.receive_address_e.setStyleSheet(ColorScheme.RED.as_stylesheet(True))
+            self.receive_address_e.setToolTip(_("This address has already been used. "
+                                                "For better privacy, do not reuse it for new payments."))
+        else:
+            self.receive_address_e.setStyleSheet("")
+            self.receive_address_e.setToolTip("")
 
     def set_feerounding_text(self, num_satoshis_added):
         self.feerounding_text = (_('Additional {} satoshis are going to be added.')
@@ -1683,8 +1695,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             x_fee_address, x_fee_amount = x_fee
             msg.append( _("Additional fees") + ": " + self.format_amount_and_units(x_fee_amount) )
 
-        confirm_rate = simple_config.FEERATE_WARNING_HIGH_FEE
-        if fee > confirm_rate * tx.estimated_size() / 1000:
+        feerate_warning = simple_config.FEERATE_WARNING_HIGH_FEE
+        if fee > feerate_warning * tx.estimated_size() / 1000:
             msg.append(_('Warning') + ': ' + _("The fee for this transaction seems unusually high."))
 
         if self.wallet.has_keystore_encryption():
@@ -1844,8 +1856,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             return
         try:
             out = util.parse_URI(URI, self.on_pr)
-        except BaseException as e:
-            self.show_error(_('Invalid bitcoin URI:') + '\n' + str(e))
+        except InvalidBitcoinURI as e:
+            self.show_error(_("Error parsing URI") + f":\n{e}")
             return
         self.show_send_tab()
         r = out.get('r')
@@ -3017,6 +3029,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         filelogging_cb.setChecked(bool(self.config.get('log_to_file', False)))
         def on_set_filelogging(v):
             self.config.set_key('log_to_file', v == Qt.Checked, save=True)
+            self.need_restart = True
         filelogging_cb.stateChanged.connect(on_set_filelogging)
         filelogging_cb.setToolTip(_('Debug logs can be persisted to disk. These are useful for troubleshooting.'))
         gui_widgets.append((filelogging_cb, None))
