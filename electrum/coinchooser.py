@@ -300,7 +300,7 @@ class CoinChooserOldestFirst(CoinChooserBase):
         selected = []
         for bucket in buckets:
             selected.append(bucket)
-            if sufficient_funds(selected):
+            if sufficient_funds(selected, bucket_value_sum=bucket.value):
                 return strip_unneeded(selected, sufficient_funds)
         else:
             raise NotEnoughFunds()
