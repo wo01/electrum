@@ -1,3 +1,4 @@
+import unittest
 from unittest import mock
 import shutil
 import tempfile
@@ -8,7 +9,7 @@ from electrum import storage, bitcoin, keystore, bip32
 from electrum import Transaction
 from electrum import SimpleConfig
 from electrum.address_synchronizer import TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_UNCONF_PARENT
-from electrum.wallet import sweep, Multisig_Wallet, Standard_Wallet, Imported_Wallet
+from electrum.wallet import sweep, Multisig_Wallet, Standard_Wallet, Imported_Wallet, restore_wallet_from_text
 from electrum.util import bfh, bh2u
 from electrum.transaction import TxOutput
 from electrum.mnemonic import seed_type
@@ -319,32 +320,6 @@ class TestWalletSending(TestCaseForTestnet):
     def create_standard_wallet_from_seed(self, seed_words):
         ks = keystore.from_seed(seed_words, '', False)
         return WalletIntegrityHelper.create_standard_wallet(ks, gap_limit=2)
-
-    @needs_test_with_all_ecc_implementations
-    def test_sweep_p2pk(self):
-
-        class NetworkMock:
-            relay_fee = 1000
-            def get_local_height(self): return 1325785
-            def get_server_height(self): return 1325785
-            def run_from_another_thread(self, coro):
-                loop = asyncio.get_event_loop()
-                return loop.run_until_complete(coro)
-            async def listunspent_for_scripthash(self, scripthash):
-                if scripthash == '460e4fb540b657d775d84ff4955c9b13bd954c2adc26a6b998331343f85b6a45':
-                    return [{'tx_hash': 'ac24de8b58e826f60bd7b9ba31670bdfc3e8aedb2f28d0e91599d741569e3429', 'tx_pos': 1, 'height': 1325785, 'value': 1000000}]
-                else:
-                    return []
-
-        privkeys = ['93NQ7CFbwTPyKDJLXe97jczw33fiLijam2SCZL3Uinz1NSbHrTu', ]
-        network = NetworkMock()
-        dest_addr = 'kmNQZ6HERZfon4xeQq4WqneB4YwmGxqW6zy'
-        tx = sweep(privkeys, network, config=None, recipient=dest_addr, fee=5000, locktime=1325785, tx_version=4)
-
-        tx_copy = Transaction(tx.serialize(), 100000)
-        self.assertEqual('040000800ae523900129349e5641d79915e9d0282fdbaee8c3df0b6731bab9d70bf626e8588bde24ac01000000484730440220610965edc5a0b223d75d792fb75152af2079c7379b50c7f83f0781a345578ac80220595bc3cafbf282e421adb8fd44e65d00326859f5f0dfae560030c7a5c74f088301fdffffff01b82e0f00000000001976a9146702df3d1073c362f559b72c2785cb6f6b6a90b088acd93a1400ed3a14000000000000000000000000',
-                         str(tx_copy))
-        self.assertEqual('90096c8be32eab35198c8fbb899e0414ec8029f1ca19f820291c6e7b9738ba81', tx_copy.txid())
 
 
 class TestWalletOfflineSigning(TestCaseForTestnet):
