@@ -728,7 +728,7 @@ class Blockchain(Logger):
             cached_height += 1
             work_in_single_header = self.chainwork_of_header_at_height(cached_height)
             if work_in_single_header == 0:
-                self.print_error("chainwork is invalid value", cached_height)
+                self.logger.info(f"chainwork is invalid value ({cached_height})")
                 break
             running_total += work_in_single_header
             if cached_height % 2016 == 2015:
@@ -778,7 +778,6 @@ class Blockchain(Logger):
         n = self.height() // 2016
         for index in range(n):
             h = self.get_hash((index+1) * 2016 -1)
-            self.print_error("checkpoints", index)
             target = self.get_target(index * 2016)
             chainwork = self.get_chainwork((index+1) * 2016 -1)
             cp.append((h, target, chainwork))
