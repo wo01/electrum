@@ -18,7 +18,7 @@ here="$(dirname "$(readlink -e "$0")")"
 
 . "$CONTRIB"/build_tools_util.sh
 
-pushd $WINEPREFIX/drive_c/electrum
+pushd $WINEPREFIX/drive_c/electrum-koto
 
 VERSION=`git describe --tags --dirty --always`
 info "Last commit: $VERSION"
