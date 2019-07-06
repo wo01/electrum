@@ -313,7 +313,7 @@ class Blockchain(Logger):
         if prev_hash != header.get('prev_block_hash'):
             raise Exception("prev hash mismatch: %s vs %s" % (prev_hash, header.get('prev_block_hash')))
         # nAverageBlocks + nMedianTimeSpan = 28 Because checkpoint don't have preblock data.
-        if height % 2016 != 0 and height // 2016 < len(constants.net.CHECKPOINTS) or height >= len(constants.net.CHECKPOINTS)*2016 and height <= len(constants.net.CHECKPOINTS)*2016 + 28:
+        if height // 2016 < len(constants.net.CHECKPOINTS) and height % 2016 != 2015 or height >= len(constants.net.CHECKPOINTS)*2016 and height <= len(constants.net.CHECKPOINTS)*2016 + 28:
             return
         if constants.net.TESTNET:
             return
@@ -666,10 +666,10 @@ class Blockchain(Logger):
             return 0
         if height == -1:
             return MAX_TARGET
-        if height // 2016 < len(self.checkpoints) and (height) % 2016 == 0:
+        if height // 2016 < len(self.checkpoints) and (height) % 2016 == 2015:
             h, t, w = self.checkpoints[height // 2016]
             return t
-        if height // 2016 < len(self.checkpoints) and (height) % 2016 != 0:
+        if height // 2016 < len(self.checkpoints) and (height) % 2016 != 2015:
             return 0
 # new target
         return self.get_target_koto(height, chain)
@@ -778,7 +778,8 @@ class Blockchain(Logger):
         n = self.height() // 2016
         for index in range(n):
             h = self.get_hash((index+1) * 2016 -1)
-            target = self.get_target(index * 2016)
+            header = self.read_header((index+1) * 2016 -1)
+            target = self.bits_to_target(header.get('bits'))
             chainwork = self.get_chainwork((index+1) * 2016 -1)
             cp.append((h, target, chainwork))
         return cp
