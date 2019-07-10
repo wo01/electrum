@@ -103,7 +103,7 @@ class ElectrumGui(Logger):
         self.efilter = OpenFileEventFilter(self.windows)
         self.app = QElectrumApplication(sys.argv)
         self.app.installEventFilter(self.efilter)
-        self.app.setWindowIcon(read_QIcon("electrum.png"))
+        self.app.setWindowIcon(read_QIcon("kotocolor_back.ico"))
         # timer
         self.timer = QTimer(self.app)
         self.timer.setSingleShot(False)
