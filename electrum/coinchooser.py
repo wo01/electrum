@@ -151,7 +151,7 @@ class CoinChooserBase(Logger):
     def penalty_func(self, base_tx, *, tx_from_buckets) -> Callable[[List[Bucket]], ScoredCandidate]:
         raise NotImplementedError
 
-    def _change_amounts(self, tx, count, fee_estimator_numchange):
+    def _change_amounts(self, tx, count, fee_estimator_numchange) -> List[int]:
         # Break change up if bigger than max_change
         output_amounts = [o.value for o in tx.outputs()]
         # Don't split change of less than 0.02 BTC
@@ -197,7 +197,7 @@ class CoinChooserBase(Logger):
         # no more than 10**max_dp_to_round_for_privacy
         # e.g. a max of 2 decimal places means losing 100 satoshis to fees
         max_dp_to_round_for_privacy = 2 if self.enable_output_value_rounding else 0
-        N = pow(10, min(max_dp_to_round_for_privacy, zeroes[0]))
+        N = int(pow(10, min(max_dp_to_round_for_privacy, zeroes[0])))
         amount = (remaining // N) * N
         amounts.append(amount)
 
@@ -209,6 +209,7 @@ class CoinChooserBase(Logger):
         amounts = self._change_amounts(tx, len(change_addrs), fee_estimator_numchange)
         assert min(amounts) >= 0
         assert len(change_addrs) >= len(amounts)
+        assert all([isinstance(amt, int) for amt in amounts])
         # If change is above dust threshold after accounting for the
         # size of the change output, add it to the transaction.
         amounts = [amount for amount in amounts if amount >= dust_threshold]
@@ -217,9 +218,9 @@ class CoinChooserBase(Logger):
         return change
 
     def _construct_tx_from_selected_buckets(self, *, buckets, base_tx, change_addrs,
-                                            fee_estimator_w, dust_threshold, base_weight):
+                                            fee_estimator_w, dust_threshold, base_weight, height):
         # make a copy of base_tx so it won't get mutated
-        tx = Transaction.from_io(base_tx.inputs()[:], base_tx.outputs()[:])
+        tx = Transaction.from_io(base_tx.inputs()[:], base_tx.outputs()[:], height)
 
         tx.add_inputs([coin for b in buckets for coin in b.coins])
         tx_weight = self._get_tx_weight(buckets, base_weight=base_weight)
@@ -259,7 +260,7 @@ class CoinChooserBase(Logger):
 
         return total_weight
 
-    def make_tx(self, coins, inputs, outputs, change_addrs, fee_estimator,
+    def make_tx(self, coins, inputs, outputs, change_addrs, fee_estimator_vb,
                 dust_threshold, height):
         """Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
@@ -310,7 +311,8 @@ class CoinChooserBase(Logger):
                                                             change_addrs=change_addrs,
                                                             fee_estimator_w=fee_estimator_w,
                                                             dust_threshold=dust_threshold,
-                                                            base_weight=base_weight)
+                                                            base_weight=base_weight,
+                                                            height=height)
 
         # Collect the coins into buckets
         all_buckets = self.bucketize_coins(coins, fee_estimator_vb=fee_estimator_vb)
@@ -332,31 +334,6 @@ class CoinChooserBase(Logger):
     def choose_buckets(self, buckets, sufficient_funds,
                        penalty_func: Callable[[List[Bucket]], ScoredCandidate]) -> ScoredCandidate:
         raise NotImplemented('To be subclassed')
-
-class CoinChooserOldestFirst(CoinChooserBase):
-    '''Maximize transaction priority. Select the oldest unspent
-    transaction outputs in your wallet, that are sufficient to cover
-    the spent amount. Then, remove any unneeded inputs, starting with
-    the smallest in value.
-    '''
-
-    def keys(self, coins):
-        return [coin['prevout_hash'] + ':' + str(coin['prevout_n'])
-                for coin in coins]
-
-    def choose_buckets(self, buckets, sufficient_funds, penalty_func):
-        '''Spend the oldest buckets first.'''
-        # Unconfirmed coins are young, not old
-        adj_height = lambda height: 99999999 if height <= 0 else height
-        buckets.sort(key = lambda b: max(adj_height(coin['height'])
-                                         for coin in b.coins))
-        selected = []
-        for bucket in buckets:
-            selected.append(bucket)
-            if sufficient_funds(selected, bucket_value_sum=bucket.value):
-                return strip_unneeded(selected, sufficient_funds)
-        else:
-            raise NotEnoughFunds()
 
 class CoinChooserRandom(CoinChooserBase):
 
@@ -481,6 +458,50 @@ class CoinChooserPrivacy(CoinChooserRandom):
             return ScoredCandidate(badness, tx, buckets)
 
         return penalty
+
+
+class CoinChooserOldestFirst(CoinChooserPrivacy):
+    '''Maximize transaction priority. Select the oldest unspent
+    transaction outputs in your wallet, that are sufficient to cover
+    the spent amount. Then, remove any unneeded inputs, starting with
+    the smallest in value.
+    '''
+    def keys(self, coins):
+        return [coin['prevout_hash'] + ':' + str(coin['prevout_n'])
+                for coin in coins]
+
+    def bucket_candidates_any(self, buckets, sufficient_funds):
+        '''Returns a list of bucket sets.'''
+        if not buckets:
+            raise NotEnoughFunds()
+
+        adj_height = lambda height: 99999999 if height <= 0 else height
+        buckets.sort(key = lambda b: max(adj_height(coin['height'])
+                                         for coin in b.coins))
+        candidates = set()
+
+        # Add all singletons
+        for n, bucket in enumerate(buckets):
+            if sufficient_funds([bucket], bucket_value_sum=bucket.value):
+                candidates.add((n, ))
+
+        # And now some random ones
+        permutation = list(range(len(buckets)))
+        bkts = []
+        bucket_value_sum = 0
+        for count, index in enumerate(permutation):
+            bucket = buckets[index]
+            bkts.append(bucket)
+            bucket_value_sum += bucket.value
+            if sufficient_funds(bkts, bucket_value_sum=bucket_value_sum):
+                candidates.add(tuple(sorted(permutation[:count + 1])))
+                break
+        else:
+            # note: this assumes that the effective value of any bkt is >= 0
+            raise NotEnoughFunds()
+
+        candidates = [[buckets[n] for n in c] for c in candidates]
+        return [strip_unneeded(c, sufficient_funds) for c in candidates]
 
 
 COIN_CHOOSERS = {

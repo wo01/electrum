@@ -107,6 +107,12 @@ class TxOutputHwInfo(NamedTuple):
     script_type: str
 
 
+class BIP143SharedTxDigestFields(NamedTuple):
+    hashPrevouts: str
+    hashSequence: str
+    hashOutputs: str
+
+
 class BCDataStream(object):
     """Workalike python implementation of Bitcoin's CDataStream class."""
 
@@ -853,7 +859,10 @@ class Transaction:
     def remove_signatures(self):
         for txin in self.inputs():
             txin['signatures'] = [None] * len(txin['signatures'])
+            txin['scriptSig'] = None
+            txin['witness'] = None
         assert not self.is_complete()
+        self.raw = None
 
     def deserialize(self, force_full_parse=False):
         if self.raw is None:
@@ -1133,20 +1142,29 @@ class Transaction:
         s += script
         return s
 
-    def serialize_preimage(self, i):
+    def _calc_bip143_shared_txdigest_fields(self) -> BIP143SharedTxDigestFields:
+        inputs = self.inputs()
+        outputs = self.outputs()
+        hashPrevouts = bh2u(sha256d(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs))))
+        hashSequence = bh2u(sha256d(bfh(''.join(int_to_hex(txin.get('sequence', 0xffffffff - 1), 4) for txin in inputs))))
+        hashOutputs = bh2u(sha256d(bfh(''.join(self.serialize_output(o) for o in outputs))))
+        return BIP143SharedTxDigestFields(hashPrevouts=hashPrevouts,
+                                          hashSequence=hashSequence,
+                                          hashOutputs=hashOutputs)
+
+    def serialize_preimage(self, txin_index: int, *,
+                           bip143_shared_txdigest_fields: BIP143SharedTxDigestFields = None) -> str:
         if self.overwintered:
             nVersion = int_to_hex(self.version + 0x80000000, 4)
             nVersionGroupId = int_to_hex(self.versionGroupId, 4)
             nExpiryHeight = int_to_hex(self.expiryHeight, 4)
         else:
             nVersion = int_to_hex(self.version, 4)
-        nHashType = int_to_hex(1, 4)
+        nHashType = int_to_hex(1, 4)  # SIGHASH_ALL
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
-        txin = inputs[i]
-# TODO: py3 hex
-#        if self.is_segwit_input(txin):
+        txin = inputs[txin_index]
         if self.overwintered:
             h = blake2b(digest_size=32, person=PREVOUTS_HASH_PERSON)
             h.update(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs)))
@@ -1176,7 +1194,7 @@ class Transaction:
             else:
                 preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
         else:
-            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if i==k else '', withSig=True) for k, txin in enumerate(inputs))
+            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if txin_index==k else '', withSig=True) for k, txin in enumerate(inputs))
             txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
             preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
@@ -1263,13 +1281,13 @@ class Transaction:
         self.raw = None
         self.BIP69_sort(inputs=False)
 
-    def input_value(self):
+    def input_value(self) -> int:
         return sum(x['value'] for x in self.inputs())
 
-    def output_value(self):
+    def output_value(self) -> int:
         return sum(o.value for o in self.outputs())
 
-    def get_fee(self):
+    def get_fee(self) -> int:
         return self.input_value() - self.output_value()
 
     def is_final(self):
@@ -1350,6 +1368,7 @@ class Transaction:
 
     def sign(self, keypairs) -> None:
         # keypairs:  (x_)pubkey -> secret_bytes
+        bip143_shared_txdigest_fields = self._calc_bip143_shared_txdigest_fields()
         for i, txin in enumerate(self.inputs()):
 #            wallet.add_input_value(txin)
             pubkeys, x_pubkeys = self.get_sorted_pubkeys(txin)
@@ -1364,22 +1383,24 @@ class Transaction:
                     continue
                 _logger.info(f"adding signature for {_pubkey}")
                 sec, compressed = keypairs.get(_pubkey)
-                sig = self.sign_txin(i, sec)
+                sig = self.sign_txin(i, sec, bip143_shared_txdigest_fields=bip143_shared_txdigest_fields)
                 self.add_signature_to_txin(i, j, sig)
 
         _logger.info(f"is_complete {self.is_complete()}")
         self.raw = self.serialize()
 
-    def sign_txin(self, txin_index, privkey_bytes) -> str:
+    def sign_txin(self, txin_index, privkey_bytes, *, bip143_shared_txdigest_fields=None) -> str:
         if self.overwintered:
             if self.saplinged:
                 h = blake2b(digest_size=32, person=SAPLING_HASH_PERSON)
             else:
                 h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
-            h.update(bfh(self.serialize_preimage(txin_index)))
+            h.update(bfh(self.serialize_preimage(txin_index,
+                                                 bip143_shared_txdigest_fields=bip143_shared_txdigest_fields)))
             pre_hash = h.digest()
         else:
-            pre_hash = sha256d(bfh(self.serialize_preimage(txin_index)))
+            pre_hash = sha256d(bfh(self.serialize_preimage(txin_index,
+                                                           bip143_shared_txdigest_fields=bip143_shared_txdigest_fields)))
         privkey = ecc.ECPrivkey(privkey_bytes)
         sig = privkey.sign_transaction(pre_hash)
         sig = bh2u(sig) + '01'
