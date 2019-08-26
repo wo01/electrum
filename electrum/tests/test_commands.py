@@ -2,6 +2,7 @@ import unittest
 from unittest import mock
 from decimal import Decimal
 
+from electrum.util import create_and_start_event_loop
 from electrum.commands import Commands, eval_bool
 from electrum import storage
 from electrum.wallet import restore_wallet_from_text
@@ -10,6 +11,15 @@ from . import TestCaseForTestnet
 
 
 class TestCommands(unittest.TestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.asyncio_loop, self._stop_loop, self._loop_thread = create_and_start_event_loop()
+
+    def tearDown(self):
+        super().tearDown()
+        self.asyncio_loop.call_soon_threadsafe(self._stop_loop.set_result, 1)
+        self._loop_thread.join(timeout=1)
 
     def test_setconfig_non_auth_number(self):
         self.assertEqual(7777, Commands._setconfig_normalize_value('rpcport', "7777"))
@@ -52,17 +62,26 @@ class TestCommands(unittest.TestCase):
         }
         for xkey1, xtype1 in xpubs:
             for xkey2, xtype2 in xpubs:
-                self.assertEqual(xkey2, cmds.convert_xkey(xkey1, xtype2))
+                self.assertEqual(xkey2, cmds._run('convert_xkey', (xkey1, xtype2)))
 
         xprvs = {
             ("xprv9yD9r6PJmTgqpGCUf8FUkkAhNTxv4rryiFWkqb5mYQPw8aMDXUzuyJ3tgv5vUqYkdK1E6Q5jKxPss4HkMBYV4q8AfG8t7rxgyS4xQX4ndAm", "standard"),
         }
         for xkey1, xtype1 in xprvs:
             for xkey2, xtype2 in xprvs:
-                self.assertEqual(xkey2, cmds.convert_xkey(xkey1, xtype2))
+                self.assertEqual(xkey2, cmds._run('convert_xkey', (xkey1, xtype2)))
 
 
 class TestCommandsTestnet(TestCaseForTestnet):
+
+    def setUp(self):
+        super().setUp()
+        self.asyncio_loop, self._stop_loop, self._loop_thread = create_and_start_event_loop()
+
+    def tearDown(self):
+        super().tearDown()
+        self.asyncio_loop.call_soon_threadsafe(self._stop_loop.set_result, 1)
+        self._loop_thread.join(timeout=1)
 
     def test_convert_xkey(self):
         cmds = Commands(config=None, wallet=None, network=None)
@@ -71,11 +90,11 @@ class TestCommandsTestnet(TestCaseForTestnet):
         }
         for xkey1, xtype1 in xpubs:
             for xkey2, xtype2 in xpubs:
-                self.assertEqual(xkey2, cmds.convert_xkey(xkey1, xtype2))
+                self.assertEqual(xkey2, cmds._run('convert_xkey', (xkey1, xtype2)))
 
         xprvs = {
             ("tprv8c83gxdVUcznP8fMx2iNUBbaQgQC7MUbBUDG3c6YU9xgt7Dn5pfcgHUeNZTAvuYmNgVHjyTzYzGWwJr7GvKCm2FkPaaJipyipbfJeB3tdPW", "standard"),
         }
         for xkey1, xtype1 in xprvs:
             for xkey2, xtype2 in xprvs:
-                self.assertEqual(xkey2, cmds.convert_xkey(xkey1, xtype2))
+                self.assertEqual(xkey2, cmds._run('convert_xkey', (xkey1, xtype2)))

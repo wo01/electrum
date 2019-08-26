@@ -87,7 +87,7 @@ class TestTransaction(SequentialTestCase):
         self.assertEqual(tx.deserialize(), expected)
         self.assertEqual(tx.deserialize(), None)
 
-        self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False, 'final': True})
+        self.assertEqual(tx.as_dict(), {'hex': unsigned_blob, 'complete': False, 'final': True, 'csv_delay': 0, 'cltv_expiry': 0, 'name': None})
         self.assertEqual(tx.get_outputs_for_UI(), [TxOutputForUI('k112pHc1rbsM4fQDiyUFzkUdtdzr4AQBa2r', 1000000)])
 
         self.assertTrue(tx.has_address('k112pHc1rbsM4fQDiyUFzkUdtdzr4AQBa2r'))
@@ -130,7 +130,7 @@ class TestTransaction(SequentialTestCase):
         tx = transaction.Transaction(signed_blob, 100000)
         self.assertEqual(tx.deserialize(), expected)
         self.assertEqual(tx.deserialize(), None)
-        self.assertEqual(tx.as_dict(), {'hex': signed_blob, 'complete': True, 'final': True})
+        self.assertEqual(tx.as_dict(), {'hex': signed_blob, 'complete': True, 'final': True, 'csv_delay': 0, 'cltv_expiry': 0, 'name': None})
 
         self.assertEqual(tx.serialize(), signed_blob)
 
