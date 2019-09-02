@@ -1174,8 +1174,8 @@ class Network(Logger):
                 async with main_taskgroup as group:
                     await group.spawn(self._maintain_sessions())
                     [await group.spawn(job) for job in self._jobs]
-            except Exception as e:
-                self.logger.exception('')
+            except BaseException as e:
+                self.logger.exception('main_taskgroup died.')
                 raise e
         asyncio.run_coroutine_threadsafe(main(), self.asyncio_loop)
 

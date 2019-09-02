@@ -24,7 +24,7 @@ from . import bitcoin
 from . import ecc
 from .ecc import sig_string_from_r_and_s, get_r_and_s_from_sig_string, der_sig_from_sig_string
 from . import constants
-from .util import bh2u, bfh, log_exceptions, list_enabled_bits, ignore_exceptions, chunks
+from .util import bh2u, bfh, log_exceptions, list_enabled_bits, ignore_exceptions, chunks, SilentTaskGroup
 from .transaction import Transaction, TxOutput
 from .logging import Logger
 from .lnonion import (new_onion_packet, decode_onion_error, OnionFailureCode, calc_hops_data_for_payment,
@@ -90,6 +90,7 @@ class Peer(Logger):
         self._local_changed_events = defaultdict(asyncio.Event)
         self._remote_changed_events = defaultdict(asyncio.Event)
         Logger.__init__(self)
+        self.group = SilentTaskGroup()
 
     def send_message(self, message_name: str, **kwargs):
         assert type(message_name) is str
@@ -141,7 +142,7 @@ class Peer(Logger):
             asyncio.ensure_future(execution_result)
 
     def on_error(self, payload):
-        self.logger.info(f"error {payload['data'].decode('ascii')}")
+        self.logger.info(f"on_error: {payload['data'].decode('ascii')}")
         chan_id = payload.get("channel_id")
         for d in [ self.channel_accepted, self.funding_signed,
                    self.funding_created, self.channel_reestablished,
@@ -231,7 +232,7 @@ class Peer(Logger):
     @log_exceptions
     @handle_disconnect
     async def main_loop(self):
-        async with aiorpcx.TaskGroup() as group:
+        async with self.group as group:
             await group.spawn(self._message_loop())
             await group.spawn(self.query_gossip())
             await group.spawn(self.process_gossip())
@@ -753,10 +754,16 @@ class Peer(Logger):
                 channel_id=chan_id,
                 next_local_commitment_number=next_local_ctn,
                 next_remote_revocation_number=oldest_unrevoked_remote_ctn)
+        self.logger.info(f'channel_reestablish: sent channel_reestablish with '
+                         f'(next_local_ctn={next_local_ctn}, '
+                         f'oldest_unrevoked_remote_ctn={oldest_unrevoked_remote_ctn})')
 
         channel_reestablish_msg = await self.channel_reestablished[chan_id].get()
         their_next_local_ctn = int.from_bytes(channel_reestablish_msg["next_local_commitment_number"], 'big')
         their_oldest_unrevoked_remote_ctn = int.from_bytes(channel_reestablish_msg["next_remote_revocation_number"], 'big')
+        self.logger.info(f'channel_reestablish: received channel_reestablish with '
+                         f'(their_next_local_ctn={their_next_local_ctn}, '
+                         f'their_oldest_unrevoked_remote_ctn={their_oldest_unrevoked_remote_ctn})')
         their_local_pcp = channel_reestablish_msg.get("my_current_per_commitment_point")
         their_claim_of_our_last_per_commitment_secret = channel_reestablish_msg.get("your_last_per_commitment_secret")
         # sanity checks of received values
@@ -772,10 +779,16 @@ class Peer(Logger):
         # e.g. for watchtowers, hence we must ensure these ctxs coincide.
         # We replay the local updates even if they were not yet committed.
         unacked = chan.hm.get_unacked_local_updates()
-        self.logger.info(f'replaying {len(unacked)} unacked messages')
+        n_replayed_msgs = 0
         for ctn, messages in unacked.items():
+            if ctn < their_next_local_ctn:
+                # They claim to have received these messages and the corresponding
+                # commitment_signed, hence we must not replay them.
+                continue
             for raw_upd_msg in messages:
                 self.transport.send_bytes(raw_upd_msg)
+                n_replayed_msgs += 1
+        self.logger.info(f'channel_reestablish: replayed {n_replayed_msgs} unacked messages')
 
         should_close_we_are_ahead = False
         should_close_they_are_ahead = False
