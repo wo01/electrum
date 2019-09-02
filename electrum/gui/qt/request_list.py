@@ -146,7 +146,7 @@ class RequestList(MyTreeView):
                     items[self.Columns.DATE].setIcon(read_QIcon("seal.png"))
                     items[self.Columns.DATE].setToolTip(f'signed by {requestor}')
                 else:
-                    items[self.Columns.DATE].setIcon(read_QIcon("bitcoin.png"))
+                    items[self.Columns.DATE].setIcon(read_QIcon("kotocolor.png"))
             self.model().insertRow(self.model().rowCount(), items)
         self.filter()
         # sort requests by date

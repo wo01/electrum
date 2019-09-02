@@ -86,7 +86,7 @@ class InvoiceList(MyTreeView):
             labels = [date_str, '[%s] '%requestor + pr.memo, self.parent.format_amount(pr.get_amount(), whitespaces=True), pr_tooltips.get(status,'')]
             items = [QStandardItem(e) for e in labels]
             self.set_editability(items)
-            items[self.Columns.DATE].setIcon(read_QIcon('bitcoin.png'))
+            items[self.Columns.DATE].setIcon(read_QIcon('kotocolor.png'))
             items[self.Columns.STATUS].setIcon(read_QIcon(pr_icons.get(status)))
             items[self.Columns.DATE].setData(key, role=ROLE_REQUEST_ID)
             items[self.Columns.DATE].setData(REQUEST_TYPE_BITCOIN, role=ROLE_REQUEST_TYPE)
