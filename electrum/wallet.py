@@ -54,7 +54,7 @@ from .crypto import sha256d
 from . import keystore
 from .keystore import load_keystore, Hardware_KeyStore, KeyStore
 from .util import multisig_type
-from .storage import STO_EV_PLAINTEXT, STO_EV_USER_PW, STO_EV_XPUB_PW, WalletStorage
+from .storage import StorageEncryptionVersion, WalletStorage
 from . import transaction, bitcoin, coinchooser, paymentrequest, ecc, bip32
 from .transaction import Transaction, TxOutput, TxOutputHwInfo
 from .plugin import run_hook
@@ -1287,7 +1287,7 @@ class Abstract_Wallet(AddressSynchronizer):
                 return True, conf
         return False, None
 
-    def get_payment_request(self, addr, config):
+    def get_payment_request(self, addr):
         r = self.receive_requests.get(addr)
         if not r:
             return
@@ -1298,32 +1298,6 @@ class Abstract_Wallet(AddressSynchronizer):
         out['status'] = status
         if conf is not None:
             out['confirmations'] = conf
-        # check if bip70 file exists
-        rdir = config.get('requests_dir')
-        if rdir:
-            key = out.get('id', addr)
-            path = os.path.join(rdir, 'req', key[0], key[1], key)
-            if os.path.exists(path):
-                baseurl = 'file://' + rdir
-                rewrite = config.get('url_rewrite')
-                if rewrite:
-                    try:
-                        baseurl = baseurl.replace(*rewrite)
-                    except BaseException as e:
-                        self.logger.info(f'Invalid config setting for "url_rewrite". err: {e}')
-                out['request_url'] = os.path.join(baseurl, 'req', key[0], key[1], key, key)
-                out['URI'] += '&r=' + out['request_url']
-                out['index_url'] = os.path.join(baseurl, 'index.html') + '?id=' + key
-                websocket_server_announce = config.get('websocket_server_announce')
-                if websocket_server_announce:
-                    out['websocket_server'] = websocket_server_announce
-                else:
-                    out['websocket_server'] = config.get('websocket_server', 'localhost')
-                websocket_port_announce = config.get('websocket_port_announce')
-                if websocket_port_announce:
-                    out['websocket_port'] = websocket_port_announce
-                else:
-                    out['websocket_port'] = config.get('websocket_port', 9999)
         return out
 
     def get_request_URI(self, addr):
@@ -1362,14 +1336,31 @@ class Abstract_Wallet(AddressSynchronizer):
             else:
                 status = PR_UNPAID
         else:
-            status = PR_INFLIGHT if conf <= 0 else PR_PAID
+            status = PR_PAID
         return status, conf
 
-    def get_request(self, key, is_lightning):
-        if not is_lightning:
-            req = self.get_payment_request(key, {})
-        else:
+    def get_request(self, key):
+        from .simple_config import get_config
+        config = get_config()
+        if key in self.receive_requests:
+            req = self.get_payment_request(key)
+        elif self.lnworker:
             req = self.lnworker.get_request(key)
+        else:
+            req = None
+        if not req:
+            return
+        if config.get('payserver_port'):
+            host = config.get('payserver_host', 'localhost')
+            port = config.get('payserver_port')
+            root = config.get('payserver_root', '/r')
+            use_ssl = bool(config.get('ssl_keyfile'))
+            protocol = 'https' if use_ssl else 'http'
+            base = '%s://%s:%d'%(protocol, host, port)
+            req['view_url'] = base + root + '/pay?id=' + key
+            if use_ssl and 'URI' in req:
+                request_url = base + '/bip70/' + key + '.bip70'
+                req['bip70_url'] = request_url
         return req
 
     def receive_tx_callback(self, tx_hash, tx, tx_height):
@@ -1408,24 +1399,6 @@ class Abstract_Wallet(AddressSynchronizer):
         self.receive_requests[addr] = req
         self.storage.put('payment_requests', self.receive_requests)
         self.set_label(addr, message) # should be a default label
-
-        rdir = config.get('requests_dir')
-        if rdir and amount is not None:
-            key = req.get('id', addr)
-            pr = paymentrequest.make_request(config, req)
-            path = os.path.join(rdir, 'req', key[0], key[1], key)
-            if not os.path.exists(path):
-                try:
-                    os.makedirs(path)
-                except OSError as exc:
-                    if exc.errno != errno.EEXIST:
-                        raise
-            with open(os.path.join(path, key), 'wb') as f:
-                f.write(pr.SerializeToString())
-            # reload
-            req = self.get_payment_request(addr, config)
-            with open(os.path.join(path, key + '.json'), 'w', encoding='utf-8') as f:
-                f.write(json.dumps(req))
         return req
 
     def delete_request(self, key):
@@ -1446,20 +1419,13 @@ class Abstract_Wallet(AddressSynchronizer):
     def remove_payment_request(self, addr, config):
         if addr not in self.receive_requests:
             return False
-        r = self.receive_requests.pop(addr)
-        rdir = config.get('requests_dir')
-        if rdir:
-            key = r.get('id', addr)
-            for s in ['.json', '']:
-                n = os.path.join(rdir, 'req', key[0], key[1], key, key + s)
-                if os.path.exists(n):
-                    os.unlink(n)
+        self.receive_requests.pop(addr)
         self.storage.put('payment_requests', self.receive_requests)
         return True
 
     def get_sorted_requests(self, config):
         """ sorted by timestamp """
-        out = [self.get_payment_request(x, config) for x in self.receive_requests.keys()]
+        out = [self.get_request(x) for x in self.receive_requests.keys()]
         if self.lnworker:
             out += self.lnworker.get_requests()
         out.sort(key=operator.itemgetter('time'))
@@ -1483,16 +1449,16 @@ class Abstract_Wallet(AddressSynchronizer):
     def can_have_keystore_encryption(self):
         return self.keystore and self.keystore.may_have_password()
 
-    def get_available_storage_encryption_version(self):
+    def get_available_storage_encryption_version(self) -> StorageEncryptionVersion:
         """Returns the type of storage encryption offered to the user.
 
         A wallet file (storage) is either encrypted with this version
         or is stored in plaintext.
         """
         if isinstance(self.keystore, Hardware_KeyStore):
-            return STO_EV_XPUB_PW
+            return StorageEncryptionVersion.XPUB_PASSWORD
         else:
-            return STO_EV_USER_PW
+            return StorageEncryptionVersion.USER_PASSWORD
 
     def has_keystore_encryption(self):
         """Returns whether encryption is enabled for the keystore.
@@ -1524,7 +1490,7 @@ class Abstract_Wallet(AddressSynchronizer):
         if encrypt_storage:
             enc_version = self.get_available_storage_encryption_version()
         else:
-            enc_version = STO_EV_PLAINTEXT
+            enc_version = StorageEncryptionVersion.PLAINTEXT
         self.storage.set_password(new_pw, enc_version)
 
         # note: Encrypting storage with a hw device is currently only
@@ -2091,7 +2057,7 @@ class Multisig_Wallet(Deterministic_Wallet):
 
     def get_available_storage_encryption_version(self):
         # multisig wallets are not offered hw device encryption
-        return STO_EV_USER_PW
+        return StorageEncryptionVersion.USER_PASSWORD
 
     def has_seed(self):
         return self.keystore.has_seed()
@@ -2162,7 +2128,8 @@ class Wallet(object):
         raise WalletFileException("Unknown wallet type: " + str(wallet_type))
 
 
-def create_new_wallet(*, path, passphrase=None, password=None, encrypt_file=True, seed_type=None, gap_limit=None):
+def create_new_wallet(*, path, passphrase=None, password=None,
+                      encrypt_file=True, seed_type=None, gap_limit=None) -> dict:
     """Create a new wallet"""
     storage = WalletStorage(path)
     if storage.file_exists():
@@ -2183,9 +2150,9 @@ def create_new_wallet(*, path, passphrase=None, password=None, encrypt_file=True
     return {'seed': seed, 'wallet': wallet, 'msg': msg}
 
 
-def restore_wallet_from_text(text, *, path, network=None,
+def restore_wallet_from_text(text, *, path,
                              passphrase=None, password=None, encrypt_file=True,
-                             gap_limit=None):
+                             gap_limit=None) -> dict:
     """Restore a wallet from text. Text can be a seed phrase, a master
     public key, a master private key, a list of bitcoin addresses
     or bitcoin private keys."""
@@ -2226,17 +2193,8 @@ def restore_wallet_from_text(text, *, path, network=None,
     assert not storage.file_exists(), "file was created too soon! plaintext keys might have been written to disk"
     wallet.update_password(old_pw=None, new_pw=password, encrypt_storage=encrypt_file)
     wallet.synchronize()
-
-    if network:
-        wallet.start_network(network)
-        _logger.info("Recovering wallet...")
-        wallet.wait_until_synchronized()
-        wallet.stop_threads()
-        # note: we don't wait for SPV
-        msg = "Recovery successful" if wallet.is_found() else "Found no history for this wallet"
-    else:
-        msg = ("This wallet was restored offline. It may contain more addresses than displayed. "
-               "Start a daemon (not offline) to sync history.")
+    msg = ("This wallet was restored offline. It may contain more addresses than displayed. "
+           "Start a daemon and use load_wallet to sync its history.")
 
     wallet.storage.write()
     return {'wallet': wallet, 'msg': msg}

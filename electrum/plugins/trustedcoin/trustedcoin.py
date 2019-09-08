@@ -45,9 +45,9 @@ from electrum.wallet import Multisig_Wallet, Deterministic_Wallet
 from electrum.i18n import _
 from electrum.plugin import BasePlugin, hook
 from electrum.util import NotEnoughFunds, UserFacingException
-from electrum.storage import STO_EV_USER_PW
+from electrum.storage import StorageEncryptionVersion
 from electrum.network import Network
-from electrum.base_wizard import BaseWizard
+from electrum.base_wizard import BaseWizard, WizardWalletPasswordSetting
 from electrum.logging import Logger
 
 
@@ -594,7 +594,10 @@ class TrustedCoinPlugin(BasePlugin):
         k1.update_password(None, password)
         wizard.data['x1/'] = k1.dump()
         wizard.data['x2/'] = k2.dump()
-        wizard.pw_args = password, encrypt_storage, STO_EV_USER_PW
+        wizard.pw_args = WizardWalletPasswordSetting(password=password,
+                                                     encrypt_storage=encrypt_storage,
+                                                     storage_enc_version=StorageEncryptionVersion.USER_PASSWORD,
+                                                     encrypt_keystore=bool(password))
         self.go_online_dialog(wizard)
 
     def restore_wallet(self, wizard):
@@ -642,7 +645,10 @@ class TrustedCoinPlugin(BasePlugin):
         xpub3 = make_xpub(get_signing_xpub(xtype), long_user_id)
         k3 = keystore.from_xpub(xpub3)
         wizard.data['x3/'] = k3.dump()
-        wizard.pw_args = password, encrypt_storage, STO_EV_USER_PW
+        wizard.pw_args = WizardWalletPasswordSetting(password=password,
+                                                     encrypt_storage=encrypt_storage,
+                                                     storage_enc_version=StorageEncryptionVersion.USER_PASSWORD,
+                                                     encrypt_keystore=bool(password))
         wizard.terminate()
 
     def create_remote_key(self, email, wizard):

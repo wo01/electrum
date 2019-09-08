@@ -56,7 +56,7 @@ class TestCommands(unittest.TestCase):
         self.assertTrue(eval_bool("1"))
 
     def test_convert_xkey(self):
-        cmds = Commands(config=None, wallet=None, network=None)
+        cmds = Commands(config=None)
         xpubs = {
             ("xpub6CCWFbvCbqF92kGwm9nV7t7RvVoQUKaq5USMdyVP6jvv1NgN52KAX6NNYCeE8Ca7JQC4K5tZcnQrubQcjJ6iixfPs4pwAQJAQgTt6hBjg11", "standard"),
         }
@@ -84,7 +84,7 @@ class TestCommandsTestnet(TestCaseForTestnet):
         self._loop_thread.join(timeout=1)
 
     def test_convert_xkey(self):
-        cmds = Commands(config=None, wallet=None, network=None)
+        cmds = Commands(config=None)
         xpubs = {
             ("tpubD8p5qNfjczgTGbh9qgNxsbFgyhv8GgfVkmp3L88qtRm5ibUYiDVCrn6WYfnGey5XVVw6Bc5QNQUZW5B4jFQsHjmaenvkFUgWtKtgj5AdPm9", "standard"),
         }
