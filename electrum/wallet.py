@@ -1102,7 +1102,7 @@ class Abstract_Wallet(AddressSynchronizer):
         if delta > 0:
             raise CannotBumpFee(_('Cannot bump fee') + ': ' + _('could not find suitable outputs'))
 
-        return Transaction.from_io(inputs, outputs, self.network.get_server_height(), locktime=locktime)
+        return Transaction.from_io(inputs, outputs, self.network.get_server_height())
 
     def cpfp(self, tx, fee):
         txid = tx.txid()
