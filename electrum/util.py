@@ -74,8 +74,7 @@ base_units_list = ['KOTO', 'mKOTO', 'uKOTO', 'sat']  # list(dict) does not guara
 DECIMAL_POINT_DEFAULT = 8  # KOTO
 
 # types of payment requests
-PR_TYPE_ADDRESS = 0
-PR_TYPE_BIP70= 1
+PR_TYPE_ONCHAIN = 0
 PR_TYPE_LN = 2
 
 # status of payment requests

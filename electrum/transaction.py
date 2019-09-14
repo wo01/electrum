@@ -33,7 +33,7 @@ import sys
 import os
 
 from typing import (Sequence, Union, NamedTuple, Tuple, Optional, Iterable,
-                    Callable, List, Dict, Set)
+                    Callable, List, Dict, Set, TYPE_CHECKING)
 from collections import defaultdict
 
 from . import ecc, bitcoin, constants, segwit_addr
@@ -46,6 +46,9 @@ from .bitcoin import (TYPE_ADDRESS, TYPE_PUBKEY, TYPE_SCRIPT, hash_160,
 from .crypto import sha256d
 from .keystore import xpubkey_to_address, xpubkey_to_pubkey
 from .logging import get_logger
+
+if TYPE_CHECKING:
+    from .wallet import Abstract_Wallet
 
 
 _logger = get_logger(__name__)
@@ -758,9 +761,6 @@ class Transaction:
             self._joinsplitsraw = b'\x00'
             self._saplingraw = b'\x00' * (8+1+1+1) # ValuBalance + spend + output + joinsplits
         self.locktime = 0
-        self.name = None
-        self.csv_delay = 0
-        self.cltv_expiry = 0
         # by default we assume this is a partial txn;
         # this value will get properly set when deserializing
         self.is_partial_originally = True
@@ -781,12 +781,12 @@ class Transaction:
     def inputs(self):
         if self._inputs is None:
             self.deserialize()
-        return self._inputs
+        return self._inputs or []
 
     def outputs(self) -> List[TxOutput]:
         if self._outputs is None:
             self.deserialize()
-        return self._outputs
+        return self._outputs or []
 
     @classmethod
     def get_sorted_pubkeys(self, txin):
@@ -855,7 +855,7 @@ class Transaction:
         txin['witness'] = None    # force re-serialization
         self.raw = None
 
-    def add_inputs_info(self, wallet):
+    def add_inputs_info(self, wallet: 'Abstract_Wallet') -> None:
         if self.is_complete():
             return
         for txin in self.inputs():
@@ -897,16 +897,13 @@ class Transaction:
         return d
 
     @classmethod
-    def from_io(klass, inputs, outputs, height, locktime=0, version=None, name=None, csv_delay=0, cltv_expiry=0):
+    def from_io(klass, inputs, outputs, height, locktime=0, version=None):
         self = klass(None, height)
         self._inputs = inputs
         self._outputs = outputs
         self.locktime = locktime
         if version is not None:
             self.version = version
-        self.name = name
-        self.csv_delay = csv_delay
-        self.cltv_expiry = cltv_expiry
         self.BIP69_sort()
         return self
 
@@ -1459,9 +1456,6 @@ class Transaction:
             'hex': self.raw,
             'complete': self.is_complete(),
             'final': self.is_final(),
-            'name': self.name,
-            'csv_delay': self.csv_delay,
-            'cltv_expiry': self.cltv_expiry,
         }
         return out
 
@@ -1469,9 +1463,6 @@ class Transaction:
     def from_dict(cls, d):
         tx = cls(d['hex'])
         tx.deserialize(True)
-        tx.name = d.get('name')
-        tx.csv_delay = d.get('csv_delay', 0)
-        tx.cltv_expiry = d.get('cltv_expiry', 0)
         return tx
 
 

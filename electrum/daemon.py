@@ -34,7 +34,6 @@ import aiohttp
 from aiohttp import web
 from base64 import b64decode
 from collections import defaultdict
-import ssl
 
 import jsonrpcclient
 import jsonrpcserver
@@ -163,7 +162,7 @@ class WatchTowerServer(Logger):
         port = self.config.get('watchtower_port', 12345)
         self.runner = web.AppRunner(self.app)
         await self.runner.setup()
-        site = web.TCPSite(self.runner, host, port)
+        site = web.TCPSite(self.runner, host, port, ssl_context=self.config.get_ssl_context())
         await site.start()
 
     async def get_ctn(self, *args):
@@ -172,9 +171,10 @@ class WatchTowerServer(Logger):
     async def add_sweep_tx(self, *args):
         return await self.lnwatcher.sweepstore.add_sweep_tx(*args)
 
-class HttpServer(Logger):
 
-    def __init__(self, daemon):
+class PayServer(Logger):
+
+    def __init__(self, daemon: 'Daemon'):
         Logger.__init__(self)
         self.daemon = daemon
         self.config = daemon.config
@@ -191,13 +191,6 @@ class HttpServer(Logger):
         host = self.config.get('payserver_host', 'localhost')
         port = self.config.get('payserver_port')
         root = self.config.get('payserver_root', '/r')
-        ssl_keyfile = self.config.get('ssl_keyfile')
-        ssl_certfile = self.config.get('ssl_certfile')
-        if ssl_keyfile and ssl_certfile:
-            ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-            ssl_context.load_cert_chain(ssl_certfile, ssl_keyfile)
-        else:
-            ssl_context = None
         app = web.Application()
         app.add_routes([web.post('/api/create_invoice', self.create_request)])
         app.add_routes([web.get('/api/get_invoice', self.get_request)])
@@ -206,7 +199,7 @@ class HttpServer(Logger):
         app.add_routes([web.static(root, 'electrum/www')])
         runner = web.AppRunner(app)
         await runner.setup()
-        site = web.TCPSite(runner, port=port, host=host, ssl_context=ssl_context)
+        site = web.TCPSite(runner, port=port, host=host, ssl_context=self.config.get_ssl_context())
         await site.start()
 
     async def create_request(self, request):
@@ -287,15 +280,15 @@ class Daemon(Logger):
         self.fx = FxThread(config, self.network)
         self.gui_object = None
         # path -> wallet;   make sure path is standardized.
-        self.wallets = {}  # type: Dict[str, Abstract_Wallet]
+        self._wallets = {}  # type: Dict[str, Abstract_Wallet]
         jobs = [self.fx.run]
         # Setup JSONRPC server
         if listen_jsonrpc:
             jobs.append(self.start_jsonrpc(config, fd))
         # request server
         if self.config.get('payserver_port'):
-            self.http_server = HttpServer(self)
-            jobs.append(self.http_server.run())
+            self.pay_server = PayServer(self)
+            jobs.append(self.pay_server.run())
         # server-side watchtower
         self.watchtower = WatchTowerServer(self.network) if self.config.get('watchtower_host') else None
         if self.watchtower:
@@ -363,12 +356,10 @@ class Daemon(Logger):
         return True
 
     async def gui(self, config_options):
-        config = SimpleConfig(config_options)
         if self.gui_object:
             if hasattr(self.gui_object, 'new_window'):
-                config.open_last_wallet()
-                path = config.get_wallet_path()
-                self.gui_object.new_window(path, config.get('url'))
+                path = self.config.get_wallet_path(use_gui_last_wallet=True)
+                self.gui_object.new_window(path, config_options.get('url'))
                 response = "ok"
             else:
                 response = "error: current GUI does not support multiple windows"
@@ -379,8 +370,8 @@ class Daemon(Logger):
     def load_wallet(self, path, password) -> Optional[Abstract_Wallet]:
         path = standardize_path(path)
         # wizard will be launched if we return
-        if path in self.wallets:
-            wallet = self.wallets[path]
+        if path in self._wallets:
+            wallet = self._wallets[path]
             return wallet
         storage = WalletStorage(path, manual_upgrades=True)
         if not storage.file_exists():
@@ -397,52 +388,51 @@ class Daemon(Logger):
             return
         wallet = Wallet(storage)
         wallet.start_network(self.network)
-        self.wallets[path] = wallet
+        self._wallets[path] = wallet
         self.wallet = wallet
         return wallet
 
-    def add_wallet(self, wallet: Abstract_Wallet):
+    def add_wallet(self, wallet: Abstract_Wallet) -> None:
         path = wallet.storage.path
         path = standardize_path(path)
-        self.wallets[path] = wallet
+        self._wallets[path] = wallet
 
-    def get_wallet(self, path):
+    def get_wallet(self, path: str) -> Abstract_Wallet:
         path = standardize_path(path)
-        return self.wallets.get(path)
+        return self._wallets.get(path)
 
-    def delete_wallet(self, path):
+    def get_wallets(self) -> Dict[str, Abstract_Wallet]:
+        return dict(self._wallets)  # copy
+
+    def delete_wallet(self, path: str) -> bool:
         self.stop_wallet(path)
         if os.path.exists(path):
             os.unlink(path)
             return True
         return False
 
-    def stop_wallet(self, path) -> bool:
+    def stop_wallet(self, path: str) -> bool:
         """Returns True iff a wallet was found."""
         path = standardize_path(path)
-        wallet = self.wallets.pop(path, None)
+        wallet = self._wallets.pop(path, None)
         if not wallet:
             return False
         wallet.stop_threads()
         return True
 
     async def run_cmdline(self, config_options):
-        password = config_options.get('password')
-        new_password = config_options.get('new_password')
-        config = SimpleConfig(config_options)
-        # FIXME this is ugly...
-        config.fee_estimates = self.network.config.fee_estimates.copy()
-        config.mempool_fees  = self.network.config.mempool_fees.copy()
-        cmdname = config.get('cmd')
+        cmdname = config_options['cmd']
         cmd = known_commands[cmdname]
         # arguments passed to function
-        args = map(lambda x: config.get(x), cmd.params)
+        args = [config_options.get(x) for x in cmd.params]
         # decode json arguments
         args = [json_decode(i) for i in args]
         # options
         kwargs = {}
         for x in cmd.options:
-            kwargs[x] = (config_options.get(x) if x in ['password', 'new_password'] else config.get(x))
+            kwargs[x] = config_options.get(x)
+        if cmd.requires_wallet:
+            kwargs['wallet_path'] = config_options.get('wallet_path')
         func = getattr(self.cmd_runner, cmd.name)
         # fixme: not sure how to retrieve message in jsonrpcclient
         try:
@@ -472,7 +462,7 @@ class Daemon(Logger):
         if self.gui_object:
             self.gui_object.stop()
         # stop network/wallets
-        for k, wallet in self.wallets.items():
+        for k, wallet in self._wallets.items():
             wallet.stop_threads()
         if self.network:
             self.logger.info("shutting down network")
