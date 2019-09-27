@@ -17,7 +17,7 @@ from electrum.mnemonic import seed_type
 from electrum.plugins.trustedcoin import trustedcoin
 
 from . import TestCaseForTestnet
-from . import SequentialTestCase
+from . import ElectrumTestCase
 from .test_bitcoin import needs_test_with_all_ecc_implementations
 
 
@@ -45,25 +45,26 @@ class WalletIntegrityHelper:
         test_obj.assertFalse(ks.has_seed())
 
     @classmethod
-    def create_standard_wallet(cls, ks, gap_limit=None):
+    def create_standard_wallet(cls, ks, *, config: SimpleConfig, gap_limit=None):
         store = storage.WalletStorage('if_this_exists_mocking_failed_648151893')
         store.put('keystore', ks.dump())
         store.put('gap_limit', gap_limit or cls.gap_limit)
-        w = Standard_Wallet(store)
+        w = Standard_Wallet(store, config=config)
         w.synchronize()
         return w
 
     @classmethod
-    def create_imported_wallet(cls, privkeys=False):
+    def create_imported_wallet(cls, *, config: SimpleConfig, privkeys: bool):
         store = storage.WalletStorage('if_this_exists_mocking_failed_648151893')
         if privkeys:
             k = keystore.Imported_KeyStore({})
             store.put('keystore', k.dump())
-        w = Imported_Wallet(store)
+        w = Imported_Wallet(store, config=config)
         return w
 
     @classmethod
-    def create_multisig_wallet(cls, keystores: Sequence, multisig_type: str, gap_limit=None):
+    def create_multisig_wallet(cls, keystores: Sequence, multisig_type: str, *,
+                               config: SimpleConfig, gap_limit=None):
         """Creates a multisig wallet."""
         store = storage.WalletStorage('if_this_exists_mocking_failed_648151893')
         for i, ks in enumerate(keystores):
@@ -71,12 +72,16 @@ class WalletIntegrityHelper:
             store.put('x%d/' % cosigner_index, ks.dump())
         store.put('wallet_type', multisig_type)
         store.put('gap_limit', gap_limit or cls.gap_limit)
-        w = Multisig_Wallet(store)
+        w = Multisig_Wallet(store, config=config)
         w.synchronize()
         return w
 
 
-class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
+class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
+
+    def setUp(self):
+        super().setUp()
+        self.config = SimpleConfig({'electrum_path': self.electrum_path})
 
     @needs_test_with_all_ecc_implementations
     @mock.patch.object(storage.WalletStorage, '_write')
@@ -92,7 +97,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
         self.assertEqual(ks.xprv, 'xprv9s21ZrQH143K32jECVM729vWgGq4mUDJCk1ozqAStTphzQtCTuoFmFafNoG1g55iCnBTXUzz3zWnDb5CVLGiFvmaZjuazHDL8a81cPQ8KL6')
         self.assertEqual(ks.xpub, 'xpub661MyMwAqRbcFWohJWt7PHsFEJfZAvw9ZxwQoDa4SoMgsDDM1T7WK3u9E4edkC4ugRnZ8E4xDZRpk8Rnts3Nbt97dPwT52CwBdDWroaZf8U')
 
-        w = WalletIntegrityHelper.create_standard_wallet(ks)
+        w = WalletIntegrityHelper.create_standard_wallet(ks, config=self.config)
         self.assertEqual(w.txin_type, 'p2pkh')
 
         self.assertEqual(w.get_receiving_addresses()[0], 'k1KDHdvDgB4XmUHLRkfrSY3c6WUuoWVMEcy')
@@ -111,7 +116,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
 
         self.assertEqual(ks.mpk, 'e9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9c09d5a3e271dc814a29981f81b3faaf2737b551ef5dcc6189cf0f8252c442b3')
 
-        w = WalletIntegrityHelper.create_standard_wallet(ks)
+        w = WalletIntegrityHelper.create_standard_wallet(ks, config=self.config)
         self.assertEqual(w.txin_type, 'p2pkh')
 
         self.assertEqual(w.get_receiving_addresses()[0], 'k1C8kyCaPKXQ6qKBNSdDBaEdLux8Wup4GSd')
@@ -146,7 +151,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
         WalletIntegrityHelper.check_xpub_keystore_sanity(self, ks3)
         self.assertTrue(isinstance(ks3, keystore.BIP32_KeyStore))
 
-        w = WalletIntegrityHelper.create_multisig_wallet([ks1, ks2, ks3], '2of3')
+        w = WalletIntegrityHelper.create_multisig_wallet([ks1, ks2, ks3], '2of3', config=self.config)
         self.assertEqual(w.txin_type, 'p2sh')
 
         self.assertEqual(w.get_receiving_addresses()[0], 'k32AfGndtRNDpV2fMSDCuTvZyeLzhu1k97U')
@@ -165,7 +170,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
         self.assertEqual(ks.xprv, 'xprv9zGLcNEb3cHUKizLVBz6RYeE9bEZAVPjH2pD1DEzCnPcsemWc3d3xTao8sfhfUmDLMq6e3RcEMEvJG1Et8dvfL8DV4h7mwm9J6AJsW9WXQD')
         self.assertEqual(ks.xpub, 'xpub6DFh1smUsyqmYD4obDX6ngaxhd53Zx7aeFjoobebm7vbkT6f9awJWFuGzBT9FQJEWFBL7UyhMXtYzRcwDuVbcxtv9Ce2W9eMm4KXLdvdbjv')
 
-        w = WalletIntegrityHelper.create_standard_wallet(ks)
+        w = WalletIntegrityHelper.create_standard_wallet(ks, config=self.config)
         self.assertEqual(w.txin_type, 'p2pkh')
 
         self.assertEqual(w.get_receiving_addresses()[0], 'k13ZdxsBiBHG8J5LoytdpshNTugDz5jSh99')
@@ -184,7 +189,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
         self.assertEqual(ks.xprv, 'xprv9z8izheguGnLopSqkY7GcGFrP2Gu6rzBvvHo6uB9B8DWJhsows6WDZAsbBTaP3ncP2AVbTQphyEQkahrB9s1L7ihZtfz5WGQPMbXwsUtSik')
         self.assertEqual(ks.xpub, 'xpub6D85QDBajeLe2JXJrZeGyQCaw47PWKi3J9DPuHakjTkVBWCxVQQkmMVMSSfnw39tj9FntbozpRtb1AJ8ubjeVSBhyK4M5mzdvsXZzKPwodT')
 
-        w = WalletIntegrityHelper.create_standard_wallet(ks)
+        w = WalletIntegrityHelper.create_standard_wallet(ks, config=self.config)
         self.assertEqual(w.txin_type, 'p2pkh')
 
         self.assertEqual(w.get_receiving_addresses()[0], 'k1BxfR4EEoVji1ZyTxBKj3PQjoWU6SBrr7y')
@@ -207,7 +212,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
         WalletIntegrityHelper.check_xpub_keystore_sanity(self, ks2)
         self.assertTrue(isinstance(ks2, keystore.BIP32_KeyStore))
 
-        w = WalletIntegrityHelper.create_multisig_wallet([ks1, ks2], '2of2')
+        w = WalletIntegrityHelper.create_multisig_wallet([ks1, ks2], '2of2', config=self.config)
         self.assertEqual(w.txin_type, 'p2sh')
 
         self.assertEqual(w.get_receiving_addresses()[0], 'k2yaEnSBqJfRUwFQj7x26WL42oYQ45HvY7A')
@@ -230,7 +235,7 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
         WalletIntegrityHelper.check_xpub_keystore_sanity(self, ks2)
         self.assertTrue(isinstance(ks2, keystore.BIP32_KeyStore))
 
-        w = WalletIntegrityHelper.create_multisig_wallet([ks1, ks2], '2of2')
+        w = WalletIntegrityHelper.create_multisig_wallet([ks1, ks2], '2of2', config=self.config)
         self.assertEqual(w.txin_type, 'p2sh')
 
         self.assertEqual(w.get_receiving_addresses()[0], 'k3FDz94EPWe121kAuPe5ZUQ6szXz15vuBGT')
@@ -255,14 +260,14 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
         self.assertEqual('02bf27f41683d84183e4e930e66d64fc8af5508b4b5bf3c473c505e4dbddaeed80', ks.derive_pubkey(1, 0))
 
         ks = create_keystore_from_bip32seed(xtype='standard')  # p2pkh
-        w = WalletIntegrityHelper.create_standard_wallet(ks)
+        w = WalletIntegrityHelper.create_standard_wallet(ks, config=self.config)
         self.assertEqual(ks.xprv, 'xprv9s21ZrQH143K3nyWMZVjzGL4KKAE1zahmhTHuV5pdw4eK3o3igC5QywgQG7UTRe6TGBniPDpPFWzXMeMUFbBj8uYsfXGjyMmF54wdNt8QBm')
         self.assertEqual(ks.xpub, 'xpub661MyMwAqRbcGH3yTb2kMQGnsLziRTJZ8vNthsVSCGbdBr8CGDWKxnGAFYgyKTzBtwvPPmfVAWJuFmxRXjSbUTg87wDkWQ5GmzpfUcN9t8Z')
         self.assertEqual(w.get_receiving_addresses()[0], 'k16W2yX2CTpLk6EGEEfHSM2y2g6qaGpLNHC')
         self.assertEqual(w.get_change_addresses()[0], 'k1B53rf1hdyq8PRoFKsnRdCw4wAxCzujvhJ')
 
         ks = create_keystore_from_bip32seed(xtype='standard')  # p2sh
-        w = WalletIntegrityHelper.create_multisig_wallet([ks], '1of1')
+        w = WalletIntegrityHelper.create_multisig_wallet([ks], '1of1', config=self.config)
         self.assertEqual(ks.xprv, 'xprv9s21ZrQH143K3nyWMZVjzGL4KKAE1zahmhTHuV5pdw4eK3o3igC5QywgQG7UTRe6TGBniPDpPFWzXMeMUFbBj8uYsfXGjyMmF54wdNt8QBm')
         self.assertEqual(ks.xpub, 'xpub661MyMwAqRbcGH3yTb2kMQGnsLziRTJZ8vNthsVSCGbdBr8CGDWKxnGAFYgyKTzBtwvPPmfVAWJuFmxRXjSbUTg87wDkWQ5GmzpfUcN9t8Z')
         self.assertEqual(w.get_receiving_addresses()[0], 'k3BuKW9waQjAGnx5mPkpMaFPbdAuEBwbHYr')
@@ -270,6 +275,10 @@ class TestWalletKeystoreAddressIntegrityForMainnet(SequentialTestCase):
 
 
 class TestWalletKeystoreAddressIntegrityForTestnet(TestCaseForTestnet):
+
+    def setUp(self):
+        super().setUp()
+        self.config = SimpleConfig({'electrum_path': self.electrum_path})
 
     @needs_test_with_all_ecc_implementations
     @mock.patch.object(storage.WalletStorage, '_write')
@@ -290,14 +299,14 @@ class TestWalletKeystoreAddressIntegrityForTestnet(TestCaseForTestnet):
         self.assertEqual('02bf27f41683d84183e4e930e66d64fc8af5508b4b5bf3c473c505e4dbddaeed80', ks.derive_pubkey(1, 0))
 
         ks = create_keystore_from_bip32seed(xtype='standard')  # p2pkh
-        w = WalletIntegrityHelper.create_standard_wallet(ks)
+        w = WalletIntegrityHelper.create_standard_wallet(ks, config=self.config)
         self.assertEqual(ks.xprv, 'tprv8ZgxMBicQKsPecD328MF9ux3dSaSFWci7FNQmuWH7uZ86eY8i3XpvjK8KSH8To2QphiZiUqaYc6nzDC6bTw8YCB9QJjaQL5pAApN4z7vh2B')
         self.assertEqual(ks.xpub, 'tpubD6NzVbkrYhZ4Y5Epun1qZKcACU6NQqocgYyC4RYaYBMWw8nuLSMR7DvzVamkqxwRgrTJ1MBMhc8wwxT2vbHqMu8RBXy4BvjWMxR5EdZroxE')
         self.assertEqual(w.get_receiving_addresses()[0], 'kmMgPHTotZfK83ubkvovVgpuZubBLWs5nff')
         self.assertEqual(w.get_change_addresses()[0], 'kmSFQAboPjpoWM78n22RUxzscAfHy9xv4rz')
 
         ks = create_keystore_from_bip32seed(xtype='standard')  # p2sh
-        w = WalletIntegrityHelper.create_multisig_wallet([ks], '1of1')
+        w = WalletIntegrityHelper.create_multisig_wallet([ks], '1of1', config=self.config)
         self.assertEqual(ks.xprv, 'tprv8ZgxMBicQKsPecD328MF9ux3dSaSFWci7FNQmuWH7uZ86eY8i3XpvjK8KSH8To2QphiZiUqaYc6nzDC6bTw8YCB9QJjaQL5pAApN4z7vh2B')
         self.assertEqual(ks.xpub, 'tpubD6NzVbkrYhZ4Y5Epun1qZKcACU6NQqocgYyC4RYaYBMWw8nuLSMR7DvzVamkqxwRgrTJ1MBMhc8wwxT2vbHqMu8RBXy4BvjWMxR5EdZroxE')
         self.assertEqual(w.get_receiving_addresses()[0], 'k2PE7XwLzzNEXA5obLv9ibzr2NAPLkTxeXH')
@@ -306,34 +315,13 @@ class TestWalletKeystoreAddressIntegrityForTestnet(TestCaseForTestnet):
 
 class TestWalletSending(TestCaseForTestnet):
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.electrum_path = tempfile.mkdtemp()
-        cls.config = SimpleConfig({'electrum_path': cls.electrum_path})
-
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        shutil.rmtree(cls.electrum_path)
+    def setUp(self):
+        super().setUp()
+        self.config = SimpleConfig({'electrum_path': self.electrum_path})
 
     def create_standard_wallet_from_seed(self, seed_words):
         ks = keystore.from_seed(seed_words, '', False)
-        return WalletIntegrityHelper.create_standard_wallet(ks, gap_limit=2)
-
-
-class TestWalletOfflineSigning(TestCaseForTestnet):
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.electrum_path = tempfile.mkdtemp()
-        cls.config = SimpleConfig({'electrum_path': cls.electrum_path})
-
-    @classmethod
-    def tearDownClass(cls):
-        super().tearDownClass()
-        shutil.rmtree(cls.electrum_path)
+        return WalletIntegrityHelper.create_standard_wallet(ks, gap_limit=2, config=self.config)
 
 
 class TestWalletHistory_SimpleRandomOrder(TestCaseForTestnet):
@@ -353,11 +341,14 @@ class TestWalletHistory_SimpleRandomOrder(TestCaseForTestnet):
     }
     txid_list = sorted(list(transactions))
 
-    @classmethod
-    def create_old_wallet(cls):
+    def setUp(self):
+        super().setUp()
+        self.config = SimpleConfig({'electrum_path': self.electrum_path})
+
+    def create_old_wallet(self):
         ks = keystore.from_old_mpk('e9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9c09d5a3e271dc814a29981f81b3faaf2737b551ef5dcc6189cf0f8252c442b3')
         # seed words: powerful random nobody notice nothing important anyway look away hidden message over
-        w = WalletIntegrityHelper.create_standard_wallet(ks, gap_limit=20)
+        w = WalletIntegrityHelper.create_standard_wallet(ks, gap_limit=20, config=self.config)
         # some txns are beyond gap limit:
         w.create_new_address(for_change=True)
         return w

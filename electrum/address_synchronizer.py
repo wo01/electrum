@@ -432,7 +432,7 @@ class AddressSynchronizer(Logger):
         return f
 
     @with_local_height_cached
-    def get_history(self, domain=None) -> Sequence[HistoryItem]:
+    def get_history(self, *, domain=None) -> Sequence[HistoryItem]:
         # get domain
         if domain is None:
             domain = self.get_addresses()

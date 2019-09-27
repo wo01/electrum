@@ -6,15 +6,17 @@ from electrum.util import create_and_start_event_loop
 from electrum.commands import Commands, eval_bool
 from electrum import storage
 from electrum.wallet import restore_wallet_from_text
+from electrum.simple_config import SimpleConfig
 
-from . import TestCaseForTestnet
+from . import TestCaseForTestnet, ElectrumTestCase
 
 
-class TestCommands(unittest.TestCase):
+class TestCommands(ElectrumTestCase):
 
     def setUp(self):
         super().setUp()
         self.asyncio_loop, self._stop_loop, self._loop_thread = create_and_start_event_loop()
+        self.config = SimpleConfig({'electrum_path': self.electrum_path})
 
     def tearDown(self):
         super().tearDown()
@@ -56,7 +58,7 @@ class TestCommands(unittest.TestCase):
         self.assertTrue(eval_bool("1"))
 
     def test_convert_xkey(self):
-        cmds = Commands(config=None)
+        cmds = Commands(config=self.config)
         xpubs = {
             ("xpub6CCWFbvCbqF92kGwm9nV7t7RvVoQUKaq5USMdyVP6jvv1NgN52KAX6NNYCeE8Ca7JQC4K5tZcnQrubQcjJ6iixfPs4pwAQJAQgTt6hBjg11", "standard"),
         }
@@ -77,6 +79,7 @@ class TestCommandsTestnet(TestCaseForTestnet):
     def setUp(self):
         super().setUp()
         self.asyncio_loop, self._stop_loop, self._loop_thread = create_and_start_event_loop()
+        self.config = SimpleConfig({'electrum_path': self.electrum_path})
 
     def tearDown(self):
         super().tearDown()
@@ -84,7 +87,7 @@ class TestCommandsTestnet(TestCaseForTestnet):
         self._loop_thread.join(timeout=1)
 
     def test_convert_xkey(self):
-        cmds = Commands(config=None)
+        cmds = Commands(config=self.config)
         xpubs = {
             ("tpubD8p5qNfjczgTGbh9qgNxsbFgyhv8GgfVkmp3L88qtRm5ibUYiDVCrn6WYfnGey5XVVw6Bc5QNQUZW5B4jFQsHjmaenvkFUgWtKtgj5AdPm9", "standard"),
         }

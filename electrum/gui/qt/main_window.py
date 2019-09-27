@@ -38,7 +38,7 @@ import queue
 import asyncio
 from typing import Optional, TYPE_CHECKING
 
-from PyQt5.QtGui import QPixmap, QKeySequence, QIcon, QCursor
+from PyQt5.QtGui import QPixmap, QKeySequence, QIcon, QCursor, QFont
 from PyQt5.QtCore import Qt, QRect, QStringListModel, QSize, pyqtSignal
 from PyQt5.QtWidgets import (QMessageBox, QComboBox, QSystemTrayIcon, QTabWidget,
                              QSpinBox, QMenuBar, QFileDialog, QCheckBox, QLabel,
@@ -87,7 +87,8 @@ from .util import (read_QIcon, ColorScheme, text_dialog, icon_path, WaitingDialo
                    OkButton, InfoButton, WWLabel, TaskThread, CancelButton,
                    CloseButton, HelpButton, MessageBoxMixin, EnterButton,
                    ButtonsLineEdit, CopyCloseButton, import_meta_gui, export_meta_gui,
-                   filename_field, address_field, char_width_in_lineedit, webopen)
+                   filename_field, address_field, char_width_in_lineedit, webopen,
+                   MONOSPACE_FONT)
 from .util import ButtonsTextEdit
 from .installwizard import WIF_HELP_TEXT
 from .history_list import HistoryList, HistoryModel
@@ -1072,8 +1073,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         message = self.receive_message_e.text()
         expiry = self.config.get('request_expiry', 3600)
         if is_lightning:
-            payment_hash = self.wallet.lnworker.add_invoice(amount, message, expiry)
-            key = bh2u(payment_hash)
+            key = self.wallet.lnworker.add_request(amount, message, expiry)
         else:
             key = self.create_bitcoin_request(amount, message, expiry)
             self.address_list.update()
@@ -1559,10 +1559,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
         def format(x):
             h = x.get('prevout_hash')
-            return h[0:10] + '...' + h[-10:] + ":%d"%x.get('prevout_n') + u'\t' + "%s"%x.get('address')
+            return h[0:10] + '...' + h[-10:] + ":%d"%x.get('prevout_n') + '\t' + "%s"%x.get('address') + '\t'
 
-        for item in self.pay_from:
-            self.from_list.addTopLevelItem(QTreeWidgetItem( [format(item), self.format_amount(item['value']) ]))
+        for coin in self.pay_from:
+            item = QTreeWidgetItem([format(coin), self.format_amount(coin['value'])])
+            item.setFont(0, QFont(MONOSPACE_FONT))
+            self.from_list.addTopLevelItem(item)
 
     def get_contact_payto(self, key):
         _type, label = self.contacts.get(key)
@@ -1695,12 +1697,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         message = self.message_e.text()
         amount = self.amount_e.get_amount()
         if not self.is_onchain:
-            return {
-                'type': PR_TYPE_LN,
-                'invoice': self.payto_e.lightning_invoice,
-                'amount': amount,
-                'message': message,
-            }
+            return self.wallet.lnworker.parse_bech32_invoice(self.payto_e.lightning_invoice)
         else:
             outputs = self.read_outputs()
             if self.check_send_tab_outputs_and_show_errors(outputs):
@@ -1730,7 +1727,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
     def do_pay_invoice(self, invoice, preview=False):
         if invoice['type'] == PR_TYPE_LN:
-            self.pay_lightning_invoice(self.payto_e.lightning_invoice)
+            self.pay_lightning_invoice(invoice['invoice'])
             return
         elif invoice['type'] == PR_TYPE_ONCHAIN:
             message = invoice['message']

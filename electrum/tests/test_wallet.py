@@ -15,8 +15,9 @@ from electrum.exchange_rate import ExchangeBase, FxThread
 from electrum.util import TxMinedInfo
 from electrum.bitcoin import COIN
 from electrum.json_db import JsonDB
+from electrum.simple_config import SimpleConfig
 
-from . import SequentialTestCase
+from . import ElectrumTestCase
 
 
 class FakeSynchronizer(object):
@@ -28,11 +29,12 @@ class FakeSynchronizer(object):
         self.store.append(address)
 
 
-class WalletTestCase(SequentialTestCase):
+class WalletTestCase(ElectrumTestCase):
 
     def setUp(self):
         super(WalletTestCase, self).setUp()
         self.user_dir = tempfile.mkdtemp()
+        self.config = SimpleConfig({'electrum_path': self.user_dir})
 
         self.wallet_path = os.path.join(self.user_dir, "somewallet")
 
@@ -114,7 +116,7 @@ class FakeWallet:
 txid = 'abc'
 ccy = 'TEST'
 
-class TestFiat(SequentialTestCase):
+class TestFiat(ElectrumTestCase):
     def setUp(self):
         super().setUp()
         self.value_sat = COIN
@@ -157,7 +159,8 @@ class TestCreateRestoreWallet(WalletTestCase):
                               password=password,
                               encrypt_file=encrypt_file,
                               seed_type='standard',
-                              gap_limit=1)
+                              gap_limit=1,
+                              config=self.config)
         wallet = d['wallet']  # type: Standard_Wallet
         wallet.check_password(password)
         self.assertEqual(passphrase, wallet.keystore.get_passphrase(password))
@@ -174,7 +177,8 @@ class TestCreateRestoreWallet(WalletTestCase):
                                      passphrase=passphrase,
                                      password=password,
                                      encrypt_file=encrypt_file,
-                                     gap_limit=1)
+                                     gap_limit=1,
+                                     config=self.config)
         wallet = d['wallet']  # type: Standard_Wallet
         self.assertEqual(passphrase, wallet.keystore.get_passphrase(password))
         self.assertEqual(text, wallet.keystore.get_seed(password))
@@ -183,28 +187,28 @@ class TestCreateRestoreWallet(WalletTestCase):
 
     def test_restore_wallet_from_text_xpub(self):
         text = 'xpub661MyMwAqRbcGodQNyahTwiQc52JsAXgxVW2w3FAnGg8D4hopSZwaaBc5va5qrZJcyYQhBUZZTsuP8qP1FXroCzmyrd3gGxk38dG9gCTxQc'
-        d = restore_wallet_from_text(text, path=self.wallet_path, gap_limit=1)
+        d = restore_wallet_from_text(text, path=self.wallet_path, gap_limit=1, config=self.config)
         wallet = d['wallet']  # type: Standard_Wallet
         self.assertEqual(text, wallet.keystore.get_master_public_key())
         self.assertEqual('k1Jz8MzNeHnxNrXiNuXVfvBPTYCNNFyHr5R', wallet.get_receiving_addresses()[0])
 
     def test_restore_wallet_from_text_xkey_that_is_also_a_valid_electrum_seed_by_chance(self):
         text = 'xprv9s21ZrQH143K39BUkM2iuppjFpkJ37KUqQAaDvvTzeCSDCtpqM1TsN47vmuUqyJqEVJUmFBDo55dsKwhzYD6sPTecP2JeNbYoia7hzf6Jzt'
-        d = restore_wallet_from_text(text, path=self.wallet_path, gap_limit=1)
+        d = restore_wallet_from_text(text, path=self.wallet_path, gap_limit=1, config=self.config)
         wallet = d['wallet']  # type: Standard_Wallet
         self.assertEqual(text, wallet.keystore.get_master_private_key(password=None))
         self.assertEqual('k16AcGtaezHCiodSXZvKYwqqezMnWcmuJUQ', wallet.get_receiving_addresses()[0])
 
     def test_restore_wallet_from_text_xprv(self):
         text = 'xprv9s21ZrQH143K4KYwGx3h6omg43BpThoqbGaS8eqZDw99LGNfGuFh2ms8Eey8yWVVPrUnMGm8UnyB3tepDVrRXtnSrBSUAr3PN6JFKWb2JZy'
-        d = restore_wallet_from_text(text, path=self.wallet_path, gap_limit=1)
+        d = restore_wallet_from_text(text, path=self.wallet_path, gap_limit=1, config=self.config)
         wallet = d['wallet']  # type: Standard_Wallet
         self.assertEqual(text, wallet.keystore.get_master_private_key(password=None))
         self.assertEqual('k1Jz8MzNeHnxNrXiNuXVfvBPTYCNNFyHr5R', wallet.get_receiving_addresses()[0])
 
     def test_restore_wallet_from_text_addresses(self):
         text = 'k1Jz8MzNeHnxNrXiNuXVfvBPTYCNNFyHr5R k1KvkHhFABPmyuGuBxJXioNenzVxVDyzaV3'
-        d = restore_wallet_from_text(text, path=self.wallet_path)
+        d = restore_wallet_from_text(text, path=self.wallet_path, config=self.config)
         wallet = d['wallet']  # type: Imported_Wallet
         self.assertEqual('k1Jz8MzNeHnxNrXiNuXVfvBPTYCNNFyHr5R', wallet.get_receiving_addresses()[0])
         self.assertEqual(2, len(wallet.get_receiving_addresses()))
@@ -214,7 +218,7 @@ class TestCreateRestoreWallet(WalletTestCase):
 
     def test_restore_wallet_from_text_privkeys(self):
         text = 'p2pkh:KzqEomvbm18p78JUySciEKHt56D8M26Go78Tftr51G8tALBmajLF p2pkh:KytmgPCUPtX2Ak8wRux2jHZE4HafHQAWEU4EwpK55M8hT7wNSNet'
-        d = restore_wallet_from_text(text, path=self.wallet_path)
+        d = restore_wallet_from_text(text, path=self.wallet_path, config=self.config)
         wallet = d['wallet']  # type: Imported_Wallet
         addr0 = wallet.get_receiving_addresses()[0]
         self.assertEqual('k1Jz8MzNeHnxNrXiNuXVfvBPTYCNNFyHr5R', addr0)
