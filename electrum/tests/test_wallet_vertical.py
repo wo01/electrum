@@ -313,17 +313,6 @@ class TestWalletKeystoreAddressIntegrityForTestnet(TestCaseForTestnet):
         self.assertEqual(w.get_change_addresses()[0], 'k2WJ4h87sAmc2RxeqpWmACSLX3fxQTY1MxA')
 
 
-class TestWalletSending(TestCaseForTestnet):
-
-    def setUp(self):
-        super().setUp()
-        self.config = SimpleConfig({'electrum_path': self.electrum_path})
-
-    def create_standard_wallet_from_seed(self, seed_words):
-        ks = keystore.from_seed(seed_words, '', False)
-        return WalletIntegrityHelper.create_standard_wallet(ks, gap_limit=2, config=self.config)
-
-
 class TestWalletHistory_SimpleRandomOrder(TestCaseForTestnet):
     transactions = {
         "0f4972c84974b908a58dda2614b68cf037e6c03e8291898c719766f213217b67": "01000000029d1bdbe67f0bd0d7bd700463f5c29302057c7b52d47de9e2ca5069761e139da2000000008b483045022100a146a2078a318c1266e42265a369a8eef8993750cb3faa8dd80754d8d541d5d202207a6ab8864986919fd1a7fd5854f1e18a8a0431df924d7a878ec3dc283e3d75340141045f7ba332df2a7b4f5d13f246e307c9174cfa9b8b05f3b83410a3c23ef8958d610be285963d67c7bc1feb082f168fa9877c25999963ff8b56b242a852b23e25edfeffffff9d1bdbe67f0bd0d7bd700463f5c29302057c7b52d47de9e2ca5069761e139da2010000008a47304402201c7fa37b74a915668b0244c01f14a9756bbbec1031fb69390bcba236148ab37e02206151581f9aa0e6758b503064c1e661a726d75c6be3364a5a121a8c12cf618f64014104dc28da82e141416aaf771eb78128d00a55fdcbd13622afcbb7a3b911e58baa6a99841bfb7b99bcb7e1d47904fda5d13fdf9675cdbbe73e44efcc08165f49bac6feffffff02b0183101000000001976a914ca14915184a2662b5d1505ce7142c8ca066c70e288ac005a6202000000001976a9145eb4eeaefcf9a709f8671444933243fbd05366a388ac54c51200",
