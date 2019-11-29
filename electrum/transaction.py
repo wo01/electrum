@@ -606,15 +606,12 @@ class Transaction:
         self._saplingraw = b'\x00' * (8+1+1+1) # ValuBalance + spend + output + joinsplits
         self.locktime = 0
         self.version = 4
-        # by default we assume this is a partial txn;
-        # this value will get properly set when deserializing
-        self.is_partial_originally = True
-        self._segwit_ser = None  # None means "don't know"
-        self.output_info = None  # type: Optional[Dict[str, TxOutputHwInfo]]
-        
+
+        self._cached_txid = None  # type: Optional[str]
+
     def vpub(self):
         return self._vpub_new
-        
+
     def valueBalance(self):
         return self._valueBalance
 
@@ -622,8 +619,6 @@ class Transaction:
         self.raw = raw
         self._inputs = None
         self.deserialize()
-
-        self._cached_txid = None  # type: Optional[str]
 
     def to_json(self) -> dict:
         d = {
@@ -643,12 +638,6 @@ class Transaction:
         if self._outputs is None:
             self.deserialize()
         return self._outputs
-
-    def add_inputs_info(self, wallet: 'Abstract_Wallet') -> None:
-        if self.is_complete():
-            return
-        for txin in self.inputs():
-            wallet.add_input_info(txin)
 
     def deserialize(self) -> None:
         if self._cached_network_ser is None:
@@ -682,7 +671,7 @@ class Transaction:
         if is_segwit:
             for txin in self._inputs:
                 parse_witness(vds, txin)
-        self.lockTime = vds.read_uint32()
+        self.locktime = vds.read_uint32()
         if self.version >= 3:
             self.expiryHeight = vds.read_uint32()
         n_ShieldedSpend = 0
@@ -699,56 +688,12 @@ class Transaction:
             self.n_JSDescs = vds.read_compact_size()
             useGroth = (self.version >= 4)
             self._joinsplits = [parse_JSDescription(vds, useGroth) for i in range(self.n_JSDescs)]
-            self._vpub_new = sum(self.joinSplits[x]['vpub_new'] for x in range(self.n_JSDescs))
+            self._vpub_new = sum(self._joinsplits[x]['vpub_new'] for x in range(self.n_JSDescs))
             if self.n_JSDescs > 0:
                 self.joinSplitPubKey = vds.read_bytes(32)
                 self.joinSplitSig = vds.read_bytes(64)
         if self.version >= 4 and (n_ShieldedSpend != 0 or n_ShieldedOutput != 0):
             self.bindingSig = vds.read_bytes(64)
-        if vds.can_read_more():
-            raise SerializationError('extra junk at the end')
-
-    @classmethod
-    def from_io(klass, inputs, outputs, locktime=0, version=None):
-        self = klass(None)
-        self._inputs = inputs
-        self._outputs = outputs
-        self.locktime = locktime
-        if version is not None:
-            self.version = version
-        self.BIP69_sort()
-        return self
-
-    @classmethod
-    def pay_script(self, output_type, addr: str) -> str:
-        """Returns scriptPubKey in hex form."""
-        if output_type == TYPE_SCRIPT:
-            return addr
-        elif output_type == TYPE_ADDRESS:
-            return bitcoin.address_to_script(addr)
-        elif output_type == TYPE_PUBKEY:
-            return bitcoin.public_key_to_p2pk_script(addr)
-        else:
-            raise TypeError('Unknown output type')
-
-        raw_bytes = bfh(self._cached_network_ser)
-        vds = BCDataStream()
-        vds.write(raw_bytes)
-        self.version = vds.read_int32()
-        n_vin = vds.read_compact_size()
-        is_segwit = (n_vin == 0)
-        if is_segwit:
-            marker = vds.read_bytes(1)
-            if marker != b'\x01':
-                raise ValueError('invalid txn marker byte: {}'.format(marker))
-            n_vin = vds.read_compact_size()
-        self._inputs = [parse_input(vds) for i in range(n_vin)]
-        n_vout = vds.read_compact_size()
-        self._outputs = [parse_output(vds) for i in range(n_vout)]
-        if is_segwit:
-            for txin in self._inputs:
-                parse_witness(vds, txin)
-        self.locktime = vds.read_uint32()
         if vds.can_read_more():
             raise SerializationError('extra junk at the end')
 
@@ -957,7 +902,7 @@ class Transaction:
             outpoint = self.serialize_outpoint(txin)
             preimage_script = self.get_preimage_script(txin)
             scriptCode = var_int(len(preimage_script) // 2) + preimage_script
-            amount = int_to_hex(txin['value'], 8)
+            amount = int_to_hex(txin.value_sats(), 8)
             nSequence = int_to_hex(txin.sequence, 4)
 
             if self.saplinged:
@@ -986,7 +931,7 @@ class Transaction:
     def serialize_as_bytes(self) -> bytes:
         return bfh(self.serialize())
 
-    def serialize_to_network(self, *, estimate_size=False, include_sigs=True, force_legacy=False, witness=True, withSig=True) -> str:
+    def serialize_to_network(self, *, estimate_size=False, include_sigs=True, force_legacy=False, withSig=True) -> str:
         """Serialize the transaction as used on the Bitcoin network, into hex.
         `include_sigs` signals whether to include scriptSigs and witnesses.
         `force_legacy` signals to use the pre-segwit format
@@ -1036,16 +981,22 @@ class Transaction:
             else:
                 return header
 
-    def txid(self):
-        self.deserialize()
-        all_segwit = all(self.is_segwit_input(x) for x in self.inputs())
-        if not all_segwit and not self.is_complete():
-            return None
-        if self.saplinged:
-            ser = self.serialize_to_network(witness=False, withSig=False)
-        else:
-            ser = self.serialize_to_network(witness=False, withSig=True)
-        return bh2u(sha256d(bfh(ser))[::-1])
+    def txid(self) -> Optional[str]:
+        if self._cached_txid is None:
+            self.deserialize()
+            all_segwit = all(self.is_segwit_input(x) for x in self.inputs())
+            if not all_segwit and not self.is_complete():
+                return None
+            try:
+                if self.saplinged:
+                    ser = self.serialize_to_network(force_legacy=True, withSig=False)
+                else:
+                    ser = self.serialize_to_network(force_legacy=True)
+            except UnknownTxinType:
+                # we might not know how to construct scriptSig for some scripts
+                return None
+            self._cached_txid = bh2u(sha256d(bfh(ser))[::-1])
+        return self._cached_txid
 
     def wtxid(self) -> Optional[str]:
         self.deserialize()
@@ -1081,7 +1032,7 @@ class Transaction:
         input_size = len(cls.serialize_input(txin, script, withSig=True)) // 2
 
         if cls.is_segwit_input(txin, guess_for_address=True):
-            witness_size = len(cls.serialize_witness(txin, withSig=True)) // 2
+            witness_size = len(cls.serialize_witness(txin, estimate_size=True, withSig=True)) // 2
         else:
             witness_size = 1 if is_segwit_tx else 0
 
