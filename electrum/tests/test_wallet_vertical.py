@@ -11,7 +11,7 @@ from electrum import SimpleConfig
 from electrum.address_synchronizer import TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_UNCONF_PARENT
 from electrum.wallet import sweep, Multisig_Wallet, Standard_Wallet, Imported_Wallet, restore_wallet_from_text
 from electrum.util import bfh, bh2u
-from electrum.transaction import TxOutput
+from electrum.transaction import TxOutput, Transaction, PartialTransaction, PartialTxOutput, PartialTxInput, tx_from_any
 from electrum.mnemonic import seed_type
 
 from electrum.plugins.trustedcoin import trustedcoin
@@ -346,7 +346,7 @@ class TestWalletHistory_SimpleRandomOrder(TestCaseForTestnet):
     def test_restoring_old_wallet_txorder1(self, mock_write):
         w = self.create_old_wallet()
         for i in [2, 7, 9, 11, 10, 6, 1, 5, 8, 4, 0, 3]:
-            tx = Transaction(self.transactions[self.txid_list[i]], 100000)
+            tx = Transaction(self.transactions[self.txid_list[i]])
             w.receive_tx_callback(tx.txid(), tx, TX_HEIGHT_UNCONFIRMED)
         self.assertEqual(42633300, sum(w.get_balance()))
 
@@ -354,7 +354,7 @@ class TestWalletHistory_SimpleRandomOrder(TestCaseForTestnet):
     def test_restoring_old_wallet_txorder2(self, mock_write):
         w = self.create_old_wallet()
         for i in [9, 2, 0, 3, 1, 11, 4, 7, 10, 8, 5, 6]:
-            tx = Transaction(self.transactions[self.txid_list[i]], 100000)
+            tx = Transaction(self.transactions[self.txid_list[i]])
             w.receive_tx_callback(tx.txid(), tx, TX_HEIGHT_UNCONFIRMED)
         self.assertEqual(42633300, sum(w.get_balance()))
 
@@ -362,6 +362,6 @@ class TestWalletHistory_SimpleRandomOrder(TestCaseForTestnet):
     def test_restoring_old_wallet_txorder3(self, mock_write):
         w = self.create_old_wallet()
         for i in [5, 8, 0, 9, 10, 3, 2, 11, 7, 1, 4, 6]:
-            tx = Transaction(self.transactions[self.txid_list[i]], 100000)
+            tx = Transaction(self.transactions[self.txid_list[i]])
             w.receive_tx_callback(tx.txid(), tx, TX_HEIGHT_UNCONFIRMED)
         self.assertEqual(42633300, sum(w.get_balance()))
