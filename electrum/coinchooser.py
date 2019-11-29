@@ -480,7 +480,8 @@ class CoinChooserOldestFirst(CoinChooserPrivacy):
     the smallest in value.
     '''
     def keys(self, coins):
-        return [coin['prevout_hash'] + ':' + str(coin['prevout_n'])
+        print(coins)
+        return [str(coin.prevout.txid) + ':' + str(coin.prevout.out_idx)
                 for coin in coins]
 
     def bucket_candidates_any(self, buckets, sufficient_funds):
@@ -489,7 +490,7 @@ class CoinChooserOldestFirst(CoinChooserPrivacy):
             raise NotEnoughFunds()
 
         adj_height = lambda height: 99999999 if height <= 0 else height
-        buckets.sort(key = lambda b: max(adj_height(coin['height'])
+        buckets.sort(key = lambda b: max(adj_height(coin.block_height)
                                          for coin in b.coins))
         candidates = set()
 
