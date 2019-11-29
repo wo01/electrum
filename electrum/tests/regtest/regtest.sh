@@ -90,6 +90,10 @@ if [[ $1 == "init" ]]; then
     new_blocks 1
 fi
 
+if [[ $1 == "new_block" ]]; then
+    new_blocks 1
+fi
+
 # start daemons. Bob is started first because he is listening
 if [[ $1 == "start" ]]; then
     $bob daemon -d
@@ -109,8 +113,8 @@ fi
 
 if [[ $1 == "open" ]]; then
     bob_node=$($bob nodeid)
-    channel_id1=$($alice open_channel $bob_node 0.001 --channel_push 0.001)
-    channel_id2=$($carol open_channel $bob_node 0.001 --channel_push 0.001)
+    channel_id1=$($alice open_channel $bob_node 0.002 --push_amount 0.001)
+    channel_id2=$($carol open_channel $bob_node 0.002 --push_amount 0.001)
     echo "mining 3 blocks"
     new_blocks 3
     sleep 10 # time for channelDB

@@ -34,6 +34,7 @@ import operator
 import asyncio
 import inspect
 from functools import wraps, partial
+from itertools import repeat
 from decimal import Decimal
 from typing import Optional, TYPE_CHECKING, Dict, List
 
@@ -52,6 +53,7 @@ from .wallet import Abstract_Wallet, create_new_wallet, restore_wallet_from_text
 from .address_synchronizer import TX_HEIGHT_LOCAL
 from .mnemonic import Mnemonic
 from .lnutil import SENT, RECEIVED
+from .lnutil import ln_dummy_address
 from .lnpeer import channel_id_from_funding_tx
 from .plugin import run_hook
 from .version import ELECTRUM_VERSION
@@ -195,9 +197,9 @@ class Commands:
                 for path, w in self.daemon.get_wallets().items()]
 
     @command('n')
-    async def load_wallet(self, wallet_path=None):
+    async def load_wallet(self, wallet_path=None, password=None):
         """Open wallet in daemon"""
-        wallet = self.daemon.load_wallet(wallet_path, self.config.get('password'))
+        wallet = self.daemon.load_wallet(wallet_path, password, manual_upgrades=False)
         if wallet is not None:
             run_hook('load_wallet', wallet, None)
         response = wallet is not None
@@ -548,7 +550,7 @@ class Commands:
             raise Exception("Cannot specify both 'fee' and 'feerate' at the same time!")
         self.nocheck = nocheck
         change_addr = self._resolver(change_addr, wallet)
-        domain_addr = None if domain_addr is None else map(self._resolver, domain_addr)
+        domain_addr = None if domain_addr is None else map(self._resolver, domain_addr, repeat(wallet))
         final_outputs = []
         for address, amount in outputs:
             address = self._resolver(address, wallet)
@@ -817,7 +819,7 @@ class Commands:
     async def addtransaction(self, tx, wallet: Abstract_Wallet = None):
         """ Add a transaction to the wallet history """
         tx = Transaction(tx)
-        if not wallet.add_transaction(tx.txid(), tx):
+        if not wallet.add_transaction(tx):
             return False
         wallet.storage.write()
         return tx.txid()
@@ -922,8 +924,16 @@ class Commands:
         return True
 
     @command('wpn')
-    async def open_channel(self, connection_string, amount, channel_push=0, password=None, wallet: Abstract_Wallet = None):
-        chan = await wallet.lnworker._open_channel_coroutine(connection_string, satoshis(amount), satoshis(channel_push), password)
+    async def open_channel(self, connection_string, amount, push_amount=0, password=None, wallet: Abstract_Wallet = None):
+        funding_sat = satoshis(amount)
+        push_sat = satoshis(push_amount)
+        dummy_output = PartialTxOutput.from_address_and_value(ln_dummy_address(), funding_sat)
+        funding_tx = wallet.mktx(outputs = [dummy_output], rbf=False, sign=False, nonlocal_only=True)
+        chan, funding_tx = await wallet.lnworker._open_channel_coroutine(connect_str=connection_string,
+                                                                         funding_tx=funding_tx,
+                                                                         funding_sat=funding_sat,
+                                                                         push_sat=push_sat,
+                                                                         password=password)
         return chan.funding_outpoint.to_str()
 
     @command('wn')
@@ -1028,7 +1038,7 @@ command_options = {
     'passphrase':  (None, "Seed extension"),
     'privkey':     (None, "Private key. Set to '?' to get a prompt."),
     'unsigned':    ("-u", "Do not sign transaction"),
-    'rbf':         (None, "Replace-by-fee transaction"),
+    'rbf':         (None, "Whether to signal opt-in Replace-By-Fee in the transaction (true/false)"),
     'locktime':    (None, "Set locktime block number"),
     'domain':      ("-D", "List of addresses"),
     'memo':        ("-m", "Description of the request"),
@@ -1037,7 +1047,7 @@ command_options = {
     'timeout':     (None, "Timeout in seconds"),
     'force':       (None, "Create new address beyond gap limit, if no more addresses are available."),
     'pending':     (None, "Show only pending requests."),
-    'channel_push':(None, 'Push initial amount (in BTC)'),
+    'push_amount': (None, 'Push initial amount (in BTC)'),
     'expired':     (None, "Show only expired requests."),
     'paid':        (None, "Show only paid requests."),
     'show_addresses': (None, "Show input and output addresses"),
@@ -1072,6 +1082,7 @@ arg_types = {
     'fee_method': str,
     'fee_level': json_loads,
     'encrypt_file': eval_bool,
+    'rbf': eval_bool,
     'timeout': float,
 }
 
