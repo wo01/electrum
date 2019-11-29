@@ -868,53 +868,6 @@ class Transaction:
                                           hashSequence=hashSequence,
                                           hashOutputs=hashOutputs)
 
-    def serialize_preimage(self, txin_index: int, *,
-                           bip143_shared_txdigest_fields: BIP143SharedTxDigestFields = None) -> str:
-        if self.overwintered:
-            nVersion = int_to_hex(self.version + 0x80000000, 4)
-            nVersionGroupId = int_to_hex(self.versionGroupId, 4)
-            nExpiryHeight = int_to_hex(self.expiryHeight, 4)
-        else:
-            nVersion = int_to_hex(self.version, 4)
-        nHashType = int_to_hex(1, 4)  # SIGHASH_ALL
-        nLocktime = int_to_hex(self.locktime, 4)
-        inputs = self.inputs()
-        outputs = self.outputs()
-        txin = inputs[txin_index]
-        if self.overwintered:
-            h = blake2b(digest_size=32, person=PREVOUTS_HASH_PERSON)
-            h.update(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs)))
-            hashPrevouts = bh2u(h.digest())
-
-            h = blake2b(digest_size=32, person=SEQUENCE_HASH_PERSON)
-            h.update(bfh(''.join(int_to_hex(txin.sequence, 4) for txin in inputs)))
-            hashSequence = bh2u(h.digest())
-
-            h = blake2b(digest_size=32, person=OUTPUTS_HASH_PERSON)
-            h.update(bfh(''.join(self.serialize_output(o) for o in outputs)))
-            hashOutputs = bh2u(h.digest())
-
-            hashJoinSplits = int_to_hex(0, 32)
-            hashShieldedSpends = int_to_hex(0, 32)
-            hashShieldedOutputs = int_to_hex(0, 32)
-            valueBalance = int_to_hex(0, 8)
-
-            outpoint = self.serialize_outpoint(txin)
-            preimage_script = self.get_preimage_script(txin)
-            scriptCode = var_int(len(preimage_script) // 2) + preimage_script
-            amount = int_to_hex(txin.value_sats(), 8)
-            nSequence = int_to_hex(txin.sequence, 4)
-
-            if self.saplinged:
-                preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + hashShieldedSpends + hashShieldedOutputs + nLocktime + nExpiryHeight + valueBalance + nHashType + outpoint + scriptCode + amount + nSequence
-            else:
-                preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
-        else:
-            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if txin_index==k else '', withSig=True) for k, txin in enumerate(inputs))
-            txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
-            preimage = nVersion + txins + txouts + nLocktime + nHashType
-        return preimage
-
     def is_segwit(self, *, guess_for_address=False):
         return any(self.is_segwit_input(txin, guess_for_address=guess_for_address)
                    for txin in self.inputs())
@@ -1895,31 +1848,48 @@ class PartialTransaction(Transaction):
 
     def serialize_preimage(self, txin_index: int, *,
                            bip143_shared_txdigest_fields: BIP143SharedTxDigestFields = None) -> str:
-        nVersion = int_to_hex(self.version, 4)
+        if self.overwintered:
+            nVersion = int_to_hex(self.version + 0x80000000, 4)
+            nVersionGroupId = int_to_hex(self.versionGroupId, 4)
+            nExpiryHeight = int_to_hex(self.expiryHeight, 4)
+        else:
+            nVersion = int_to_hex(self.version, 4)
+        nHashType = int_to_hex(1, 4)  # SIGHASH_ALL
         nLocktime = int_to_hex(self.locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
         txin = inputs[txin_index]
-        sighash = txin.sighash if txin.sighash is not None else SIGHASH_ALL
-        if sighash != SIGHASH_ALL:
-            raise Exception("only SIGHASH_ALL signing is supported!")
-        nHashType = int_to_hex(sighash, 4)
-        preimage_script = self.get_preimage_script(txin)
-        if self.is_segwit_input(txin):
-            if bip143_shared_txdigest_fields is None:
-                bip143_shared_txdigest_fields = self._calc_bip143_shared_txdigest_fields()
-            hashPrevouts = bip143_shared_txdigest_fields.hashPrevouts
-            hashSequence = bip143_shared_txdigest_fields.hashSequence
-            hashOutputs = bip143_shared_txdigest_fields.hashOutputs
-            outpoint = txin.prevout.serialize_to_network().hex()
+        if self.overwintered:
+            h = blake2b(digest_size=32, person=PREVOUTS_HASH_PERSON)
+            h.update(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs)))
+            hashPrevouts = bh2u(h.digest())
+
+            h = blake2b(digest_size=32, person=SEQUENCE_HASH_PERSON)
+            h.update(bfh(''.join(int_to_hex(txin.sequence, 4) for txin in inputs)))
+            hashSequence = bh2u(h.digest())
+
+            h = blake2b(digest_size=32, person=OUTPUTS_HASH_PERSON)
+            h.update(bfh(''.join(self.serialize_output(o) for o in outputs)))
+            hashOutputs = bh2u(h.digest())
+
+            hashJoinSplits = int_to_hex(0, 32)
+            hashShieldedSpends = int_to_hex(0, 32)
+            hashShieldedOutputs = int_to_hex(0, 32)
+            valueBalance = int_to_hex(0, 8)
+
+            outpoint = self.serialize_outpoint(txin)
+            preimage_script = self.get_preimage_script(txin)
             scriptCode = var_int(len(preimage_script) // 2) + preimage_script
             amount = int_to_hex(txin.value_sats(), 8)
-            nSequence = int_to_hex(txin.nsequence, 4)
-            preimage = nVersion + hashPrevouts + hashSequence + outpoint + scriptCode + amount + nSequence + hashOutputs + nLocktime + nHashType
+            nSequence = int_to_hex(txin.sequence, 4)
+
+            if self.saplinged:
+                preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + hashShieldedSpends + hashShieldedOutputs + nLocktime + nExpiryHeight + valueBalance + nHashType + outpoint + scriptCode + amount + nSequence
+            else:
+                preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
         else:
-            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, preimage_script if txin_index==k else '')
-                                                   for k, txin in enumerate(inputs))
-            txouts = var_int(len(outputs)) + ''.join(o.serialize_to_network().hex() for o in outputs)
+            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if txin_index==k else '', withSig=True) for k, txin in enumerate(inputs))
+            txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
             preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
 
