@@ -104,7 +104,7 @@ class TxEditor:
             self.main_window.logger.exception('')
             self.show_message(str(e))
             return
-        use_rbf = bool(self.config.get('use_rbf', True))
+        use_rbf = bool(self.config.get('use_rbf', False))
         if use_rbf:
             self.tx.set_rbf(True)
 

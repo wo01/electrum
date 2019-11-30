@@ -1861,15 +1861,15 @@ class PartialTransaction(Transaction):
         txin = inputs[txin_index]
         if self.overwintered:
             h = blake2b(digest_size=32, person=PREVOUTS_HASH_PERSON)
-            h.update(bfh(''.join(self.serialize_outpoint(txin) for txin in inputs)))
+            h.update(b''.join(txin.prevout.serialize_to_network() for txin in inputs))
             hashPrevouts = bh2u(h.digest())
 
             h = blake2b(digest_size=32, person=SEQUENCE_HASH_PERSON)
-            h.update(bfh(''.join(int_to_hex(txin.sequence, 4) for txin in inputs)))
+            h.update(bfh(''.join(int_to_hex(txin.nsequence, 4) for txin in inputs)))
             hashSequence = bh2u(h.digest())
 
             h = blake2b(digest_size=32, person=OUTPUTS_HASH_PERSON)
-            h.update(bfh(''.join(self.serialize_output(o) for o in outputs)))
+            h.update(bfh(''.join(o.serialize_to_network().hex() for o in outputs)))
             hashOutputs = bh2u(h.digest())
 
             hashJoinSplits = int_to_hex(0, 32)
@@ -1877,18 +1877,19 @@ class PartialTransaction(Transaction):
             hashShieldedOutputs = int_to_hex(0, 32)
             valueBalance = int_to_hex(0, 8)
 
-            outpoint = self.serialize_outpoint(txin)
+            outpoint = txin.prevout.serialize_to_network().hex()
             preimage_script = self.get_preimage_script(txin)
             scriptCode = var_int(len(preimage_script) // 2) + preimage_script
             amount = int_to_hex(txin.value_sats(), 8)
-            nSequence = int_to_hex(txin.sequence, 4)
+            nSequence = int_to_hex(txin.nsequence, 4)
 
             if self.saplinged:
                 preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + hashShieldedSpends + hashShieldedOutputs + nLocktime + nExpiryHeight + valueBalance + nHashType + outpoint + scriptCode + amount + nSequence
             else:
                 preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
         else:
-            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if txin_index==k else '', withSig=True) for k, txin in enumerate(inputs))
+            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if txin_index==k else '', withSig=True)
+                                                   for k, txin in enumerate(inputs))
             txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
             preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
@@ -1914,8 +1915,17 @@ class PartialTransaction(Transaction):
     def sign_txin(self, txin_index, privkey_bytes, *, bip143_shared_txdigest_fields=None) -> str:
         txin = self.inputs()[txin_index]
         txin.validate_data(for_signing=True)
-        pre_hash = sha256d(bfh(self.serialize_preimage(txin_index,
-                                                       bip143_shared_txdigest_fields=bip143_shared_txdigest_fields)))
+        if self.overwintered:
+            if self.saplinged:
+                h = blake2b(digest_size=32, person=SAPLING_HASH_PERSON)
+            else:
+                h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
+            h.update(bfh(self.serialize_preimage(txin_index,
+                                                 bip143_shared_txdigest_fields=bip143_shared_txdigest_fields)))
+            pre_hash = h.digest()
+        else:
+            pre_hash = sha256d(bfh(self.serialize_preimage(txin_index,
+                                                           bip143_shared_txdigest_fields=bip143_shared_txdigest_fields)))
         privkey = ecc.ECPrivkey(privkey_bytes)
         sig = privkey.sign_transaction(pre_hash)
         sig = bh2u(sig) + '01'  # SIGHASH_ALL
