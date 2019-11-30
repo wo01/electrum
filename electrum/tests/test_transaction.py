@@ -63,14 +63,14 @@ class TestBCDataStream(ElectrumTestCase):
 
 class TestTransaction(ElectrumTestCase):
 
-    @needs_test_with_all_ecc_implementations
-    def test_tx_update_signatures(self):
-        tx = tx_from_any("cHNidP8BAFUBAAAAASpcmpT83pj1WBzQAWLGChOTbOt1OJ6mW/OGM7Qk60AxAAAAAAD/////AUBCDwAAAAAAGXapFCMKw3g0BzpCFG8R74QUrpKf6q/DiKwAAAAAAAAA")
-        tx.inputs()[0].script_type = 'p2pkh'
-        tx.inputs()[0].pubkeys = [bfh('02e61d176da16edd1d258a200ad9759ef63adf8e14cd97f53227bae35cdb84d2f6')]
-        tx.inputs()[0].num_sig = 1
-        tx.update_signatures(signed_blob_signatures)
-        self.assertEqual(tx.serialize(), signed_blob)
+    # @needs_test_with_all_ecc_implementations
+    # def test_tx_update_signatures(self):
+    #     tx = tx_from_any("cHNidP8BAFUBAAAAASpcmpT83pj1WBzQAWLGChOTbOt1OJ6mW/OGM7Qk60AxAAAAAAD/////AUBCDwAAAAAAGXapFCMKw3g0BzpCFG8R74QUrpKf6q/DiKwAAAAAAAAA")
+    #     tx.inputs()[0].script_type = 'p2pkh'
+    #     tx.inputs()[0].pubkeys = [bfh('02e61d176da16edd1d258a200ad9759ef63adf8e14cd97f53227bae35cdb84d2f6')]
+    #     tx.inputs()[0].num_sig = 1
+    #     tx.update_signatures(signed_blob_signatures)
+    #     self.assertEqual(tx.serialize(), signed_blob)
 
     @needs_test_with_all_ecc_implementations
     def test_tx_deserialize_for_signed_network_tx(self):
