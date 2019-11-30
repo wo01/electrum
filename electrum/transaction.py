@@ -1888,9 +1888,10 @@ class PartialTransaction(Transaction):
             else:
                 preimage = nVersion + nVersionGroupId + hashPrevouts + hashSequence + hashOutputs + hashJoinSplits + nLocktime + nExpiryHeight + nHashType + outpoint + scriptCode + amount + nSequence
         else:
-            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, self.get_preimage_script(txin) if txin_index==k else '', withSig=True)
+            txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, preimage_script if txin_index==k else '', withSig=True)
                                                    for k, txin in enumerate(inputs))
-            txouts = var_int(len(outputs)) + ''.join(self.serialize_output(o) for o in outputs)
+            txouts = var_int(len(outputs)) + ''.join(o.serialize_to_network().h
+ex() for o in outputs)
             preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
 
