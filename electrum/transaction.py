@@ -1890,8 +1890,7 @@ class PartialTransaction(Transaction):
         else:
             txins = var_int(len(inputs)) + ''.join(self.serialize_input(txin, preimage_script if txin_index==k else '', withSig=True)
                                                    for k, txin in enumerate(inputs))
-            txouts = var_int(len(outputs)) + ''.join(o.serialize_to_network().h
-ex() for o in outputs)
+            txouts = var_int(len(outputs)) + ''.join(o.serialize_to_network().hex() for o in outputs)
             preimage = nVersion + txins + txouts + nLocktime + nHashType
         return preimage
 
