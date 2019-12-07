@@ -1993,7 +1993,9 @@ class PartialTransaction(Transaction):
             sig = signatures[i]
             if bfh(sig) in list(txin.part_sigs.values()):
                 continue
-            pre_hash = sha256d(bfh(self.serialize_preimage(i)))
+            h = blake2b(digest_size=32, person=SAPLING_HASH_PERSON)
+            h.update(bfh(self.serialize_preimage(i)))
+            pre_hash = h.digest()
             sig_string = ecc.sig_string_from_der_sig(bfh(sig[:-2]))
             for recid in range(4):
                 try:

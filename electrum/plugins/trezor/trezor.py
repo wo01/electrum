@@ -103,7 +103,7 @@ class TrezorPlugin(HW_PluginBase):
     keystore_class = TrezorKeyStore
     minimum_library = (0, 11, 0)
     maximum_library = (0, 12)
-    SUPPORTED_XTYPES = ('standard', 'p2wpkh-p2sh', 'p2wpkh', 'p2wsh-p2sh', 'p2wsh')
+    SUPPORTED_XTYPES = ('standard')
     DEVICE_IDS = (TREZOR_PRODUCT_KEY,)
 
     MAX_LABEL_LEN = 32
