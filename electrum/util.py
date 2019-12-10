@@ -183,7 +183,9 @@ class BitcoinException(Exception): pass
 class UserFacingException(Exception):
     """Exception that contains information intended to be shown to the user."""
 
-class InvoiceError(Exception): pass
+
+class InvoiceError(UserFacingException): pass
+
 
 # Throw this exception to unwind the stack like when an error occurs.
 # However unlike other exceptions the user won't be informed.
@@ -810,7 +812,7 @@ def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
             raise InvalidBitcoinURI(f"failed to parse 'exp' field: {repr(e)}") from e
     if 'sig' in out:
         try:
-            out['sig'] = bh2u(bitcoin.base_decode(out['sig'], None, base=58))
+            out['sig'] = bh2u(bitcoin.base_decode(out['sig'], base=58))
         except Exception as e:
             raise InvalidBitcoinURI(f"failed to parse 'sig' field: {repr(e)}") from e
 

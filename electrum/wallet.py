@@ -55,7 +55,7 @@ from .bitcoin import (COIN, is_address, address_to_script,
                       is_minikey, relayfee, dust_threshold)
 from .crypto import sha256d
 from . import keystore
-from .keystore import load_keystore, Hardware_KeyStore, KeyStore
+from .keystore import load_keystore, Hardware_KeyStore, KeyStore, KeyStoreWithMPK
 from .util import multisig_type
 from .storage import StorageEncryptionVersion, WalletStorage
 from . import transaction, bitcoin, coinchooser, paymentrequest, ecc, bip32
@@ -347,8 +347,7 @@ class Abstract_Wallet(AddressSynchronizer):
                 addrs = self._unused_change_addresses
             else:
                 addrs = self.get_change_addresses()
-            self._unused_change_addresses = [addr for addr in addrs if
-                                            self.get_address_history_len(addr) == 0]
+            self._unused_change_addresses = [addr for addr in addrs if not self.is_used(addr)]
             return list(self._unused_change_addresses)
 
     def is_deterministic(self):
@@ -455,7 +454,7 @@ class Abstract_Wallet(AddressSynchronizer):
     def get_public_keys(self, address):
         return [self.get_public_key(address)]
 
-    def get_public_keys_with_deriv_info(self, address: str) -> Dict[str, Tuple[KeyStore, Sequence[int]]]:
+    def get_public_keys_with_deriv_info(self, address: str) -> Dict[str, Tuple[KeyStoreWithMPK, Sequence[int]]]:
         """Returns a map: pubkey_hex -> (keystore, derivation_suffix)"""
         return {}
 
@@ -1469,14 +1468,14 @@ class Abstract_Wallet(AddressSynchronizer):
             return addr
         return wrapper
 
-    def get_unused_addresses(self):
+    def get_unused_addresses(self) -> Sequence[str]:
         domain = self.get_receiving_addresses()
-        in_use = [k for k in self.receive_requests.keys() if self.get_request_status(k)[0] != PR_EXPIRED]
-        return [addr for addr in domain if not self.db.get_addr_history(addr)
-                and addr not in in_use]
+        in_use_by_request = [k for k in self.receive_requests.keys() if self.get_request_status(k)[0] != PR_EXPIRED]
+        return [addr for addr in domain if not self.is_used(addr)
+                and addr not in in_use_by_request]
 
     @check_returned_address
-    def get_unused_address(self):
+    def get_unused_address(self) -> Optional[str]:
         addrs = self.get_unused_addresses()
         if addrs:
             return addrs[0]
@@ -1489,7 +1488,7 @@ class Abstract_Wallet(AddressSynchronizer):
             return
         choice = domain[0]
         for addr in domain:
-            if not self.db.get_addr_history(addr):
+            if not self.is_used(addr):
                 if addr not in self.receive_requests.keys():
                     return addr
                 else:
@@ -1936,7 +1935,7 @@ class Imported_Wallet(Simple_Wallet):
         transactions_new = set()  # txs that are not only referred to by address
         with self.lock:
             for addr in self.db.get_history():
-                details = self.db.get_addr_history(addr)
+                details = self.get_address_history(addr)
                 if addr == address:
                     for tx_hash, height in details:
                         transactions_to_remove.add(tx_hash)
