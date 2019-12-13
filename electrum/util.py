@@ -104,6 +104,7 @@ pr_tooltips = {
 }
 
 pr_expiration_values = {
+    0: _('Never'),
     10*60: _('10 minutes'),
     60*60: _('1 hour'),
     24*60*60: _('1 day'),
@@ -112,12 +113,13 @@ pr_expiration_values = {
 
 def get_request_status(req):
     status = req['status']
-    if req['status'] == PR_UNPAID and 'exp' in req and req['time'] + req['exp'] < time.time():
+    exp = req.get('exp', 0)
+    if req['status'] == PR_UNPAID and exp > 0 and req['time'] + req['exp'] < time.time():
         status = PR_EXPIRED
     status_str = pr_tooltips[status]
     if status == PR_UNPAID:
-        if req.get('exp'):
-            expiration = req['exp'] + req['time']
+        if exp > 0:
+            expiration = exp + req['time']
             status_str = _('Expires') + ' ' + age(expiration, include_seconds=True)
         else:
             status_str = _('Pending')
@@ -982,6 +984,7 @@ def ignore_exceptions(func):
         try:
             return await func(*args, **kwargs)
         except asyncio.CancelledError:
+            # note: with python 3.8, CancelledError no longer inherits Exception, so this catch is redundant
             raise
         except Exception as e:
             pass

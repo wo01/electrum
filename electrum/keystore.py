@@ -107,11 +107,11 @@ class KeyStore(Logger, ABC):
         pass
 
     @abstractmethod
-    def sign_message(self, sequence, message, password) -> bytes:
+    def sign_message(self, sequence: 'AddressIndexGeneric', message, password) -> bytes:
         pass
 
     @abstractmethod
-    def decrypt_message(self, sequence, message, password) -> bytes:
+    def decrypt_message(self, sequence: 'AddressIndexGeneric', message, password) -> bytes:
         pass
 
     @abstractmethod
@@ -185,7 +185,8 @@ class Software_KeyStore(KeyStore):
         pass
 
     @abstractmethod
-    def get_private_key(self, *args, **kwargs) -> Tuple[bytes, bool]:
+    def get_private_key(self, sequence: 'AddressIndexGeneric', password) -> Tuple[bytes, bool]:
+        """Returns (privkey, is_compressed)"""
         pass
 
 
@@ -196,7 +197,7 @@ class Imported_KeyStore(Software_KeyStore):
 
     def __init__(self, d):
         Software_KeyStore.__init__(self, d)
-        self.keypairs = d.get('keypairs', {})
+        self.keypairs = d.get('keypairs', {})  # type: Dict[str, str]
 
     def is_deterministic(self):
         return False
@@ -231,7 +232,7 @@ class Imported_KeyStore(Software_KeyStore):
     def delete_imported_key(self, key):
         self.keypairs.pop(key)
 
-    def get_private_key(self, pubkey, password):
+    def get_private_key(self, pubkey: str, password):
         sec = pw_decode(self.keypairs[pubkey], password, version=self.pw_hash_version)
         txin_type, privkey, compressed = deserialize_privkey(sec)
         # this checks the password
@@ -335,7 +336,7 @@ class MasterPublicKeyMixin(ABC):
         pass
 
     @abstractmethod
-    def derive_pubkey(self, for_change: int, n: int) -> str:
+    def derive_pubkey(self, for_change: int, n: int) -> bytes:
         pass
 
     def get_pubkey_derivation(self, pubkey: bytes,
@@ -345,7 +346,7 @@ class MasterPublicKeyMixin(ABC):
         def test_der_suffix_against_pubkey(der_suffix: Sequence[int], pubkey: bytes) -> bool:
             if len(der_suffix) != 2:
                 return False
-            if pubkey.hex() != self.derive_pubkey(*der_suffix):
+            if pubkey != self.derive_pubkey(*der_suffix):
                 return False
             return True
 
@@ -451,10 +452,9 @@ class Xpub(MasterPublicKeyMixin):
         self._root_fingerprint = root_fingerprint
         self._derivation_prefix = normalize_bip32_derivation(derivation_prefix)
 
-    # note: this helper method exists as derive_pubkey returns hex strings,
-    #       and it saves space to cache bytes instead
     @lru_cache(maxsize=None)
-    def _derive_pubkey_bytes(self, for_change: int, n: int) -> bytes:
+    def derive_pubkey(self, for_change: int, n: int) -> bytes:
+        for_change = int(for_change)
         assert for_change in (0, 1)
         xpub = self.xpub_change if for_change else self.xpub_receive
         if xpub is None:
@@ -465,11 +465,6 @@ class Xpub(MasterPublicKeyMixin):
             else:
                 self.xpub_receive = xpub
         return self.get_pubkey_from_xpub(xpub, (n,))
-
-    def derive_pubkey(self, for_change: int, n: int) -> str:
-        for_change = int(for_change)
-        assert for_change in (0, 1)
-        return self._derive_pubkey_bytes(for_change, n).hex()
 
     @classmethod
     def get_pubkey_from_xpub(self, xpub: str, sequence) -> bytes:
@@ -541,7 +536,7 @@ class BIP32_KeyStore(Xpub, Deterministic_KeyStore):
         self.add_xprv(node.to_xprv())
         self.add_key_origin_from_root_node(derivation_prefix=derivation, root_node=rootnode)
 
-    def get_private_key(self, sequence, password):
+    def get_private_key(self, sequence: Sequence[int], password):
         xprv = self.get_master_private_key(password)
         node = BIP32Node.from_xkey(xprv).subkey_at_private_derivation(sequence)
         pk = node.eckey.get_secret_bytes()
@@ -617,13 +612,16 @@ class Old_KeyStore(MasterPublicKeyMixin, Deterministic_KeyStore):
         return string_to_number(sha256d(("%d:%d:"%(n, for_change)).encode('ascii') + bfh(mpk)))
 
     @classmethod
-    def get_pubkey_from_mpk(self, mpk, for_change, n):
-        z = self.get_sequence(mpk, for_change, n)
+    def get_pubkey_from_mpk(cls, mpk, for_change, n) -> bytes:
+        z = cls.get_sequence(mpk, for_change, n)
         master_public_key = ecc.ECPubkey(bfh('04'+mpk))
         public_key = master_public_key + z*ecc.generator()
-        return public_key.get_public_key_hex(compressed=False)
+        return public_key.get_public_key_bytes(compressed=False)
 
-    def derive_pubkey(self, for_change, n) -> str:
+    @lru_cache(maxsize=None)
+    def derive_pubkey(self, for_change, n) -> bytes:
+        for_change = int(for_change)
+        assert for_change in (0, 1)
         return self.get_pubkey_from_mpk(self.mpk, for_change, n)
 
     def _get_private_key_from_stretched_exponent(self, for_change, n, secexp):
@@ -631,7 +629,7 @@ class Old_KeyStore(MasterPublicKeyMixin, Deterministic_KeyStore):
         pk = number_to_string(secexp, ecc.CURVE_ORDER)
         return pk
 
-    def get_private_key(self, sequence, password):
+    def get_private_key(self, sequence: Sequence[int], password):
         seed = self.get_hex_seed(password)
         secexp = self.stretch_key(seed)
         self._check_seed(seed, secexp=secexp)
@@ -770,6 +768,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
 
 
 KeyStoreWithMPK = Union[KeyStore, MasterPublicKeyMixin]  # intersection really...
+AddressIndexGeneric = Union[Sequence[int], str]  # can be hex pubkey str
 
 
 def bip39_normalize_passphrase(passphrase):
