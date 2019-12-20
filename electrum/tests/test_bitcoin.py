@@ -175,8 +175,8 @@ class Test_bitcoin(ElectrumTestCase):
         sig1_b64 = base64.b64encode(sig1)
         sig2_b64 = base64.b64encode(sig2)
 
-        self.assertEqual(sig1_b64, b'H2xHDhY+0uCTElnpnYNHhksaRKMTWNwwKGJ0ed34H2[42 chars]nEc=')
-        self.assertEqual(sig2_b64, b'HBQdYfv7kOrxmRewLJnG7sV6KlU71O04hUnE4tai97p7Pg+D+yKaWXsdGgHTrKw90caQMo/D6b//qX50ge9P9iI=')
+        self.assertEqual(sig1_b64, b'H2xHDhY+0uCTElnpnYNHhksaRKMTWNwwKGJ0ed34H29eRSsMl6pGidRTKhTnQuZ1jLzWzwX7XKJXYgKYJu/OnEc=')
+        self.assertEqual(sig2_b64, b'IB3+kdxVqziwOcmJUAL4b15p3PQvJd8aWsHAJKfcs8iqD30uz2Z88UL0WWU0Q1o/uA0JUU6qK3zBI1caJsmZHG8=')
 
         self.assertTrue(ecc.verify_message_with_address(addr1, sig1, msg1))
         self.assertTrue(ecc.verify_message_with_address(addr2, sig2, msg2))
