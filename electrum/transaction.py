@@ -59,7 +59,7 @@ SEQUENCE_HASH_PERSON = b'ZcashSequencHash'
 OUTPUTS_HASH_PERSON = b'ZcashOutputsHash'
 JOINSPLITS_HASH_PERSON = b'ZcashJSplitsHash'
 OVERWINTER_HASH_PERSON = b'ZcashSigHash\x19\x1b\xa8\x5b'
-SAPLING_HASH_PERSON = b'ZcashSigHash\xbb\x09\xb8\x76'
+SAPLING_HASH_PERSON = b'ZcashSigHash\x60\x0e\xb4\x2b'
 
 NO_SIGNATURE = 'ff'
 PARTIAL_TXN_HEADER_MAGIC = b'EPTF\xff'
