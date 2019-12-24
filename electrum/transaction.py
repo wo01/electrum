@@ -68,6 +68,7 @@ OUTPUTS_HASH_PERSON = b'ZcashOutputsHash'
 JOINSPLITS_HASH_PERSON = b'ZcashJSplitsHash'
 OVERWINTER_HASH_PERSON = b'ZcashSigHash\x19\x1b\xa8\x5b'
 SAPLING_HASH_PERSON = b'ZcashSigHash\xbb\x09\xb8\x76'
+BLOSSOM_HASH_PERSON = b'ZcashSigHash\x60\x0e\xb4\x2b'
 
 NO_SIGNATURE = 'ff'
 PARTIAL_TXN_HEADER_MAGIC = b'EPTF\xff'
@@ -1928,7 +1929,7 @@ class PartialTransaction(Transaction):
         txin.validate_data(for_signing=True)
         if self.overwintered:
             if self.saplinged:
-                h = blake2b(digest_size=32, person=SAPLING_HASH_PERSON)
+                h = blake2b(digest_size=32, person=BLOSSOM_HASH_PERSON)
             else:
                 h = blake2b(digest_size=32, person=OVERWINTER_HASH_PERSON)
             h.update(bfh(self.serialize_preimage(txin_index,
@@ -1993,7 +1994,7 @@ class PartialTransaction(Transaction):
             sig = signatures[i]
             if bfh(sig) in list(txin.part_sigs.values()):
                 continue
-            h = blake2b(digest_size=32, person=SAPLING_HASH_PERSON)
+            h = blake2b(digest_size=32, person=BLOSSOM_HASH_PERSON)
             h.update(bfh(self.serialize_preimage(i)))
             pre_hash = h.digest()
             sig_string = ecc.sig_string_from_der_sig(bfh(sig[:-2]))
