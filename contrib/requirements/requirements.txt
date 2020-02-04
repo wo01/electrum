@@ -12,4 +12,5 @@ bitstring
 pycryptodomex>=3.7
 jsonrpcserver
 jsonrpcclient
+attrs
 yescrypt_koto>=1.2
