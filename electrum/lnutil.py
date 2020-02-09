@@ -38,15 +38,10 @@ LN_MAX_FUNDING_SAT = pow(2, 24) - 1
 def ln_dummy_address():
     return redeem_script_to_address('p2wsh', '')
 
-
-class StoredAttr:
-
-    def to_json(self):
-        return dict(vars(self))
-
+from .json_db import StoredObject
 
 @attr.s
-class OnlyPubkeyKeypair(StoredAttr):
+class OnlyPubkeyKeypair(StoredObject):
     pubkey = attr.ib(type=bytes)
 
 @attr.s
@@ -54,7 +49,7 @@ class Keypair(OnlyPubkeyKeypair):
     privkey = attr.ib(type=bytes)
 
 @attr.s
-class Config(StoredAttr):
+class Config(StoredObject):
     # shared channel config fields
     payment_basepoint = attr.ib(type=OnlyPubkeyKeypair)
     multisig_key = attr.ib(type=OnlyPubkeyKeypair)
@@ -83,13 +78,13 @@ class RemoteConfig(Config):
     current_per_commitment_point = attr.ib(default=None, type=bytes)
 
 @attr.s
-class FeeUpdate(StoredAttr):
+class FeeUpdate(StoredObject):
     rate = attr.ib(type=int)  # in sat/kw
     ctn_local = attr.ib(default=None, type=int)
     ctn_remote = attr.ib(default=None, type=int)
 
 @attr.s
-class ChannelConstraints(StoredAttr):
+class ChannelConstraints(StoredObject):
     capacity = attr.ib(type=int)
     is_initiator = attr.ib(type=bool)
     funding_txn_minimum_depth = attr.ib(type=int)
@@ -102,7 +97,7 @@ class ScriptHtlc(NamedTuple):
 
 # FIXME duplicate of TxOutpoint in transaction.py??
 @attr.s
-class Outpoint(StoredAttr):
+class Outpoint(StoredObject):
     txid = attr.ib(type=str)
     output_index = attr.ib(type=int)
 
@@ -180,27 +175,28 @@ class RevocationStore:
     START_INDEX = 2 ** 48 - 1
 
     def __init__(self, storage):
-        self.buckets = [None] * 49
-        self.index = self.START_INDEX
-        if storage:
-            decode = lambda to_decode: ShachainElement(bfh(to_decode[0]), int(to_decode[1]))
-            self.buckets = [k if k is None else decode(k) for k in storage["buckets"]]
-            self.index = storage["index"]
+        if len(storage) == 0:
+            storage['index'] = self.START_INDEX
+            storage['buckets'] = {}
+        self.storage = storage
+        self.buckets = storage['buckets']
 
     def add_next_entry(self, hsh):
-        new_element = ShachainElement(index=self.index, secret=hsh)
-        bucket = count_trailing_zeros(self.index)
+        index = self.storage['index']
+        new_element = ShachainElement(index=index, secret=hsh)
+        bucket = count_trailing_zeros(index)
         for i in range(0, bucket):
             this_bucket = self.buckets[i]
             e = shachain_derive(new_element, this_bucket.index)
             if e != this_bucket:
                 raise Exception("hash is not derivable: {} {} {}".format(bh2u(e.secret), bh2u(this_bucket.secret), this_bucket.index))
         self.buckets[bucket] = new_element
-        self.index -= 1
+        self.storage['index'] = index - 1
 
     def retrieve_secret(self, index: int) -> bytes:
         assert index <= self.START_INDEX, index
-        for bucket in self.buckets:
+        for i in range(0, 49):
+            bucket = self.buckets.get(i)
             if bucket is None:
                 raise UnableToDeriveSecret()
             try:
@@ -209,9 +205,6 @@ class RevocationStore:
                 continue
             return element.secret
         raise UnableToDeriveSecret()
-
-    def serialize(self):
-        return {"index": self.index, "buckets": [[bh2u(k.secret), k.index] if k is not None else None for k in self.buckets]}
 
     def __eq__(self, o):
         return type(o) is RevocationStore and self.serialize() == o.serialize()
