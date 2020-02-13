@@ -40,7 +40,6 @@ from .lntransport import LNTransport, LNResponderTransport
 from .lnpeer import Peer, LN_P2P_NETWORK_TIMEOUT
 from .lnaddr import lnencode, LnAddr, lndecode
 from .ecc import der_sig_from_sig_string
-from .ecc_fast import is_using_fast_ecc
 from .lnchannel import Channel
 from .lnchannel import channel_states, peer_states
 from . import lnutil
@@ -303,7 +302,6 @@ class LNGossip(LNWorker):
         self.localfeatures |= LnLocalFeatures.GOSSIP_QUERIES_OPT
         self.localfeatures |= LnLocalFeatures.GOSSIP_QUERIES_REQ
         self.unknown_ids = set()
-        assert is_using_fast_ecc(), "verifying LN gossip msgs without libsecp256k1 is hopeless"
 
     def start_network(self, network: 'Network'):
         assert network
@@ -341,25 +339,25 @@ class LNWallet(LNWorker):
     def __init__(self, wallet: 'Abstract_Wallet', xprv):
         Logger.__init__(self)
         self.wallet = wallet
-        self.storage = wallet.storage
+        self.db = wallet.db
         self.config = wallet.config
         LNWorker.__init__(self, xprv)
         self.ln_keystore = keystore.from_xprv(xprv)
         self.localfeatures |= LnLocalFeatures.OPTION_DATA_LOSS_PROTECT_REQ
-        self.payments = self.storage.db.get_dict('lightning_payments')     # RHASH -> amount, direction, is_paid
-        self.preimages = self.storage.db.get_dict('lightning_preimages')   # RHASH -> preimage
+        self.payments = self.db.get_dict('lightning_payments')     # RHASH -> amount, direction, is_paid
+        self.preimages = self.db.get_dict('lightning_preimages')   # RHASH -> preimage
         self.sweep_address = wallet.get_receiving_address()
         self.lock = threading.RLock()
         self.logs = defaultdict(list)  # type: Dict[str, List[PaymentAttemptLog]]  # key is RHASH
 
         # note: accessing channels (besides simple lookup) needs self.lock!
         self.channels = {}
-        channels = self.storage.db.get_dict("channels")
+        channels = self.db.get_dict("channels")
         for channel_id, c in channels.items():
             self.channels[bfh(channel_id)] = Channel(c, sweep_address=self.sweep_address, lnworker=self)
 
         # timestamps of opening and closing transactions
-        self.channel_timestamps = self.storage.db.get_dict('lightning_channel_timestamps')
+        self.channel_timestamps = self.db.get_dict('lightning_channel_timestamps')
         self.pending_payments = defaultdict(asyncio.Future)
 
     @ignore_exceptions
@@ -585,10 +583,10 @@ class LNWallet(LNWorker):
 
     def get_and_inc_counter_for_channel_keys(self):
         with self.lock:
-            ctr = self.storage.get('lightning_channel_key_der_ctr', -1)
+            ctr = self.db.get('lightning_channel_key_der_ctr', -1)
             ctr += 1
-            self.storage.put('lightning_channel_key_der_ctr', ctr)
-            self.storage.write()
+            self.db.put('lightning_channel_key_der_ctr', ctr)
+            self.wallet.save_db()
             return ctr
 
     def suggest_peer(self):
@@ -610,7 +608,7 @@ class LNWallet(LNWorker):
         assert type(chan) is Channel
         if chan.config[REMOTE].next_per_commitment_point == chan.config[REMOTE].current_per_commitment_point:
             raise Exception("Tried to save channel with next_point == current_point, this should not happen")
-        self.wallet.storage.write()
+        self.wallet.save_db()
         self.network.trigger_callback('channel', chan)
 
     def save_short_chan_id(self, chan):
@@ -1127,7 +1125,7 @@ class LNWallet(LNWorker):
     def save_preimage(self, payment_hash: bytes, preimage: bytes):
         assert sha256(preimage) == payment_hash
         self.preimages[bh2u(payment_hash)] = bh2u(preimage)
-        self.storage.write()
+        self.wallet.save_db()
 
     def get_preimage(self, payment_hash: bytes) -> bytes:
         return bfh(self.preimages.get(bh2u(payment_hash)))
@@ -1145,7 +1143,7 @@ class LNWallet(LNWorker):
         assert info.status in [PR_PAID, PR_UNPAID, PR_INFLIGHT]
         with self.lock:
             self.payments[key] = info.amount, info.direction, info.status
-        self.storage.write()
+        self.wallet.save_db()
 
     def get_payment_status(self, payment_hash):
         try:
@@ -1230,7 +1228,7 @@ class LNWallet(LNWorker):
                 del self.payments[payment_hash_hex]
         except KeyError:
             return
-        self.storage.write()
+        self.wallet.save_db()
 
     def get_balance(self):
         with self.lock:
@@ -1276,7 +1274,7 @@ class LNWallet(LNWorker):
         with self.lock:
             self.channels.pop(chan_id)
             self.channel_timestamps.pop(chan_id.hex())
-            self.storage.get('channels').pop(chan_id.hex())
+            self.db.get('channels').pop(chan_id.hex())
 
         self.network.trigger_callback('channels_updated', self.wallet)
         self.network.trigger_callback('wallet_updated', self.wallet)

@@ -5,7 +5,7 @@ import tempfile
 from typing import Sequence
 import asyncio
 
-from electrum import storage, bitcoin, keystore, bip32
+from electrum import storage, bitcoin, keystore, bip32, wallet
 from electrum import Transaction
 from electrum import SimpleConfig
 from electrum.address_synchronizer import TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_UNCONF_PARENT
@@ -18,7 +18,6 @@ from electrum.plugins.trustedcoin import trustedcoin
 
 from . import TestCaseForTestnet
 from . import ElectrumTestCase
-from .test_bitcoin import needs_test_with_all_ecc_implementations
 
 
 UNICODE_HORROR_HEX = 'e282bf20f09f988020f09f98882020202020e3818620e38191e3819fe381be20e3828fe3828b2077cda2cda2cd9d68cda16fcda2cda120ccb8cda26bccb5cd9f6eccb4cd98c7ab77ccb8cc9b73cd9820cc80cc8177cd98cda2e1b8a9ccb561d289cca1cda27420cca7cc9568cc816fccb572cd8fccb5726f7273cca120ccb6cda1cda06cc4afccb665cd9fcd9f20ccb6cd9d696ecda220cd8f74cc9568ccb7cca1cd9f6520cd9fcd9f64cc9b61cd9c72cc95cda16bcca2cca820cda168ccb465cd8f61ccb7cca2cca17274cc81cd8f20ccb4ccb7cda0c3b2ccb5ccb666ccb82075cca7cd986ec3adcc9bcd9c63cda2cd8f6fccb7cd8f64ccb8cda265cca1cd9d3fcd9e'
@@ -46,33 +45,33 @@ class WalletIntegrityHelper:
 
     @classmethod
     def create_standard_wallet(cls, ks, *, config: SimpleConfig, gap_limit=None):
-        store = storage.WalletStorage('if_this_exists_mocking_failed_648151893')
-        store.put('keystore', ks.dump())
-        store.put('gap_limit', gap_limit or cls.gap_limit)
-        w = Standard_Wallet(store, config=config)
+        db = storage.WalletDB('', manual_upgrades=False)
+        db.put('keystore', ks.dump())
+        db.put('gap_limit', gap_limit or cls.gap_limit)
+        w = Standard_Wallet(db, None, config=config)
         w.synchronize()
         return w
 
     @classmethod
     def create_imported_wallet(cls, *, config: SimpleConfig, privkeys: bool):
-        store = storage.WalletStorage('if_this_exists_mocking_failed_648151893')
+        db = storage.WalletDB('', manual_upgrades=False)
         if privkeys:
             k = keystore.Imported_KeyStore({})
-            store.put('keystore', k.dump())
-        w = Imported_Wallet(store, config=config)
+            db.put('keystore', k.dump())
+        w = Imported_Wallet(db, None, config=config)
         return w
 
     @classmethod
     def create_multisig_wallet(cls, keystores: Sequence, multisig_type: str, *,
                                config: SimpleConfig, gap_limit=None):
         """Creates a multisig wallet."""
-        store = storage.WalletStorage('if_this_exists_mocking_failed_648151893')
+        db = storage.WalletDB('', manual_upgrades=True)
         for i, ks in enumerate(keystores):
             cosigner_index = i + 1
-            store.put('x%d/' % cosigner_index, ks.dump())
-        store.put('wallet_type', multisig_type)
-        store.put('gap_limit', gap_limit or cls.gap_limit)
-        w = Multisig_Wallet(store, config=config)
+            db.put('x%d/' % cosigner_index, ks.dump())
+        db.put('wallet_type', multisig_type)
+        db.put('gap_limit', gap_limit or cls.gap_limit)
+        w = Multisig_Wallet(db, None, config=config)
         w.synchronize()
         return w
 
@@ -83,9 +82,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         super().setUp()
         self.config = SimpleConfig({'electrum_path': self.electrum_path})
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_electrum_seed_standard(self, mock_write):
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_electrum_seed_standard(self, mock_save_db):
         seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
         self.assertEqual(seed_type(seed_words), 'standard')
 
@@ -103,9 +101,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         self.assertEqual(w.get_receiving_addresses()[0], 'k1KDHdvDgB4XmUHLRkfrSY3c6WUuoWVMEcy')
         self.assertEqual(w.get_change_addresses()[0], 'k1GHBjZoMnSQ1fhkQwTTeQpYj2gMMBWEbps')
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_electrum_seed_old(self, mock_write):
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_electrum_seed_old(self, mock_save_db):
         seed_words = 'powerful random nobody notice nothing important anyway look away hidden message over'
         self.assertEqual(seed_type(seed_words), 'old')
 
@@ -122,9 +119,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         self.assertEqual(w.get_receiving_addresses()[0], 'k1C8kyCaPKXQ6qKBNSdDBaEdLux8Wup4GSd')
         self.assertEqual(w.get_change_addresses()[0], 'k1GG2sqikuPL4XaH5BWGSCMKyiPkHX5GqM5')
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_electrum_seed_2fa_legacy(self, mock_write):
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_electrum_seed_2fa_legacy(self, mock_save_db):
         seed_words = 'kiss live scene rude gate step hip quarter bunker oxygen motor glove'
         self.assertEqual(seed_type(seed_words), '2fa')
 
@@ -157,9 +153,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         self.assertEqual(w.get_receiving_addresses()[0], 'k32AfGndtRNDpV2fMSDCuTvZyeLzhu1k97U')
         self.assertEqual(w.get_change_addresses()[0], 'k3LV5yeMS3yKwDpWyjz4QWzkKAiWWtd49gt')
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_bip39_seed_bip44_standard(self, mock_write):
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_bip39_seed_bip44_standard(self, mock_save_db):
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
         self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
 
@@ -176,9 +171,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         self.assertEqual(w.get_receiving_addresses()[0], 'k13ZdxsBiBHG8J5LoytdpshNTugDz5jSh99')
         self.assertEqual(w.get_change_addresses()[0], 'k1D6cLX6BJJraMxGE2VG3Qm17M74bBfogcf')
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_bip39_seed_bip44_standard_passphrase(self, mock_write):
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_bip39_seed_bip44_standard_passphrase(self, mock_save_db):
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
         self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
 
@@ -195,9 +189,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         self.assertEqual(w.get_receiving_addresses()[0], 'k1BxfR4EEoVji1ZyTxBKj3PQjoWU6SBrr7y')
         self.assertEqual(w.get_change_addresses()[0], 'k1Dtvx3JLf8SntvtprmkBcmW4bmDetHXk5t')
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_electrum_multisig_seed_standard(self, mock_write):
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_electrum_multisig_seed_standard(self, mock_save_db):
         seed_words = 'blast uniform dragon fiscal ensure vast young utility dinosaur abandon rookie sure'
         self.assertEqual(seed_type(seed_words), 'standard')
 
@@ -218,9 +211,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         self.assertEqual(w.get_receiving_addresses()[0], 'k2yaEnSBqJfRUwFQj7x26WL42oYQ45HvY7A')
         self.assertEqual(w.get_change_addresses()[0], 'k33N3gFjXUdEqd9tEmeHq2PmXEDaNZZTdfm')
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_bip39_multisig_seed_bip45_standard(self, mock_write):
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_bip39_multisig_seed_bip45_standard(self, mock_save_db):
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
         self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
 
@@ -241,9 +233,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         self.assertEqual(w.get_receiving_addresses()[0], 'k3FDz94EPWe121kAuPe5ZUQ6szXz15vuBGT')
         self.assertEqual(w.get_change_addresses()[0], 'k3C7VxwQM6MpXetiZnEbdp8yXsyWENFZRBW')
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_bip32_extended_version_bytes(self, mock_write):
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_bip32_extended_version_bytes(self, mock_save_db):
         seed_words = 'crouch dumb relax small truck age shine pink invite spatial object tenant'
         self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
         bip32_seed = keystore.bip39_to_seed(seed_words, '')
@@ -280,9 +271,9 @@ class TestWalletKeystoreAddressIntegrityForTestnet(TestCaseForTestnet):
         super().setUp()
         self.config = SimpleConfig({'electrum_path': self.electrum_path})
 
-    @needs_test_with_all_ecc_implementations
-    @mock.patch.object(storage.WalletStorage, '_write')
-    def test_bip32_extended_version_bytes(self, mock_write):
+
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_bip32_extended_version_bytes(self, mock_save_db):
         seed_words = 'crouch dumb relax small truck age shine pink invite spatial object tenant'
         self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
         bip32_seed = keystore.bip39_to_seed(seed_words, '')
@@ -386,7 +377,7 @@ class TestWalletSending(TestCaseForTestnet):
         wallet.receive_tx_callback(tx.txid(), tx, TX_HEIGHT_UNCONFIRMED)
         self.assertEqual((0, 7484320, 0), wallet.get_balance())
 
-    def _bump_fee_when_user_sends_max(self, *, simulate_moving_txs):
+    def _bump_fee_p2wpkh_when_there_is_a_change_address(self, *, simulate_moving_txs):
         wallet = self.create_standard_wallet_from_seed('frost repair depend effort salon ring foam oak cancel receive save usage')
 
         # bootstrap wallet

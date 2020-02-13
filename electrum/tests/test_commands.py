@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from electrum.util import create_and_start_event_loop
 from electrum.commands import Commands, eval_bool
-from electrum import storage
+from electrum import storage, wallet
 from electrum.wallet import restore_wallet_from_text
 from electrum.simple_config import SimpleConfig
 
