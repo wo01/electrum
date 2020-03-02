@@ -44,7 +44,7 @@ from abc import ABC, abstractmethod
 import itertools
 
 from .i18n import _
-from .bip32 import BIP32Node
+from .bip32 import BIP32Node, convert_bip32_intpath_to_strpath
 from .crypto import sha256
 from .util import (NotEnoughFunds, UserCancelled, profiler,
                    format_satoshis, format_fee_satoshis, NoDynamicFeeEstimates,
@@ -210,6 +210,7 @@ class TxWalletDetails(NamedTuple):
     fee: Optional[int]
     tx_mined_status: TxMinedInfo
     mempool_depth_bytes: Optional[int]
+    can_remove: bool  # whether user should be allowed to delete tx
 
 
 class Abstract_Wallet(AddressSynchronizer, ABC):
@@ -280,7 +281,12 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
     def has_lightning(self):
         return bool(self.lnworker)
 
+    def can_have_lightning(self):
+        # we want static_remotekey to be a wallet address
+        return self.txin_type == 'p2wpkh'
+
     def init_lightning(self):
+        assert self.can_have_lightning()
         if self.db.get('lightning_privkey2'):
             return
         # TODO derive this deterministically from wallet.keystore at keystore generation time
@@ -437,6 +443,13 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         pass
 
     @abstractmethod
+    def get_address_path_str(self, address: str) -> Optional[str]:
+        """Returns derivation path str such as "m/0/5" to address,
+        or None if not applicable.
+        """
+        pass
+
+    @abstractmethod
     def get_redeem_script(self, address: str) -> Optional[str]:
         pass
 
@@ -483,6 +496,11 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
                              and (tx_we_already_have_in_db is None or not tx_we_already_have_in_db.is_complete()))
         label = ''
         tx_mined_status = self.get_tx_height(tx_hash)
+        can_remove = ((tx_mined_status.height in [TX_HEIGHT_FUTURE, TX_HEIGHT_LOCAL])
+                      # otherwise 'height' is unreliable (typically LOCAL):
+                      and is_relevant
+                      # don't offer during common signing flow, e.g. when watch-only wallet starts creating a tx:
+                      and bool(tx_we_already_have_in_db))
         if tx.is_complete():
             if tx_we_already_have_in_db:
                 label = self.get_label(tx_hash)
@@ -533,6 +551,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
             fee=fee,
             tx_mined_status=tx_mined_status,
             mempool_depth_bytes=exp_n,
+            can_remove=can_remove,
         )
 
     def get_spendable_coins(self, domain, *, nonlocal_only=False) -> Sequence[PartialTxInput]:
@@ -578,13 +597,16 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         return balance
 
     def get_onchain_history(self, *, domain=None):
+        monotonic_timestamp = 0
         for hist_item in self.get_history(domain=domain):
+            monotonic_timestamp = max(monotonic_timestamp, (hist_item.tx_mined_status.timestamp or float('inf')))
             yield {
                 'txid': hist_item.txid,
                 'fee_sat': hist_item.fee,
                 'height': hist_item.tx_mined_status.height,
                 'confirmations': hist_item.tx_mined_status.conf,
                 'timestamp': hist_item.tx_mined_status.timestamp,
+                'monotonic_timestamp': monotonic_timestamp,
                 'incoming': True if hist_item.delta>0 else False,
                 'bc_value': Satoshis(hist_item.delta),
                 'bc_balance': Satoshis(hist_item.balance),
@@ -656,7 +678,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         if request_type == PR_TYPE_ONCHAIN:
             item['status'] = PR_PAID if self.is_onchain_invoice_paid(item) else PR_UNPAID
         elif self.lnworker and request_type == PR_TYPE_LN:
-            item['status'] = self.lnworker.get_payment_status(bfh(item['rhash']))
+            item['status'] = self.lnworker.get_invoice_status(key)
         else:
             return
         return item
@@ -724,30 +746,35 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
 
     @profiler
     def get_full_history(self, fx=None, *, onchain_domain=None, include_lightning=True):
-        transactions = OrderedDictWithIndex()
+        transactions_tmp = OrderedDictWithIndex()
+        # add on-chain txns
         onchain_history = self.get_onchain_history(domain=onchain_domain)
         for tx_item in onchain_history:
             txid = tx_item['txid']
-            transactions[txid] = tx_item
+            transactions_tmp[txid] = tx_item
+        # add LN txns
         if self.lnworker and include_lightning:
             lightning_history = self.lnworker.get_history()
         else:
             lightning_history = []
-
         for i, tx_item in enumerate(lightning_history):
             txid = tx_item.get('txid')
             ln_value = Decimal(tx_item['amount_msat']) / 1000
-            if txid and txid in transactions:
-                item = transactions[txid]
+            if txid and txid in transactions_tmp:
+                item = transactions_tmp[txid]
                 item['label'] = tx_item['label']
                 item['ln_value'] = Satoshis(ln_value)
-                item['ln_balance_msat'] = tx_item['balance_msat']
             else:
                 tx_item['lightning'] = True
                 tx_item['ln_value'] = Satoshis(ln_value)
-                tx_item['txpos'] = i # for sorting
                 key = tx_item.get('txid') or tx_item['payment_hash']
-                transactions[key] = tx_item
+                transactions_tmp[key] = tx_item
+        # sort on-chain and LN stuff into new dict, by timestamp
+        # (we rely on this being a *stable* sort)
+        transactions = OrderedDictWithIndex()
+        for k, v in sorted(list(transactions_tmp.items()),
+                           key=lambda x: x[1].get('monotonic_timestamp') or x[1].get('timestamp') or float('inf')):
+            transactions[k] = v
         now = time.time()
         balance = 0
         for item in transactions.values():
@@ -757,6 +784,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
                 value += item['bc_value'].value
             if item.get('ln_value'):
                 value += item.get('ln_value').value
+            # note: 'value' and 'balance' has msat precision (as LN has msat precision)
             item['value'] = Satoshis(value)
             balance += value
             item['balance'] = Satoshis(balance)
@@ -1631,7 +1659,6 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
             'address':addr,
             'memo':message,
             'id':_id,
-            'outputs': [PartialTxOutput.from_address_and_value(addr, amount)],
         }
 
     def sign_payment_request(self, key, alias, alias_addr, password):
@@ -1869,7 +1896,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
         pass
 
     @abstractmethod
-    def is_beyond_limit(self, address: str) -> bool:
+    def get_all_known_addresses_beyond_gap_limit(self) -> Set[str]:
         pass
 
 
@@ -1945,8 +1972,8 @@ class Imported_Wallet(Simple_Wallet):
     def is_change(self, address):
         return False
 
-    def is_beyond_limit(self, address):
-        return False
+    def get_all_known_addresses_beyond_gap_limit(self) -> Set[str]:
+        return set()
 
     def get_fingerprint(self):
         return ''
@@ -1986,7 +2013,7 @@ class Imported_Wallet(Simple_Wallet):
         else:
             raise BitcoinException(str(bad_addr[0][1]))
 
-    def delete_address(self, address):
+    def delete_address(self, address: str):
         if not self.db.has_imported_address(address):
             return
         transactions_to_remove = set()  # only referred to by this address
@@ -2031,6 +2058,9 @@ class Imported_Wallet(Simple_Wallet):
     def get_address_index(self, address) -> Optional[str]:
         # returns None if address is not mine
         return self.get_public_key(address)
+
+    def get_address_path_str(self, address):
+        return None
 
     def get_public_key(self, address) -> Optional[str]:
         x = self.db.get_imported_address(address)
@@ -2234,24 +2264,32 @@ class Deterministic_Wallet(Abstract_Wallet):
             self.synchronize_sequence(False)
             self.synchronize_sequence(True)
 
-    def is_beyond_limit(self, address):
-        is_change, i = self.get_address_index(address)
-        limit = self.gap_limit_for_change if is_change else self.gap_limit
-        if i < limit:
-            return False
-        slice_start = max(0, i - limit)
-        slice_stop = max(0, i)
-        if is_change:
-            prev_addresses = self.get_change_addresses(slice_start=slice_start, slice_stop=slice_stop)
-        else:
-            prev_addresses = self.get_receiving_addresses(slice_start=slice_start, slice_stop=slice_stop)
-        for addr in prev_addresses:
-            if self.db.get_addr_history(addr):
-                return False
-        return True
+    def get_all_known_addresses_beyond_gap_limit(self):
+        # note that we don't stop at first large gap
+        found = set()
+
+        def process_addresses(addrs, gap_limit):
+            rolling_num_unused = 0
+            for addr in addrs:
+                if self.db.get_addr_history(addr):
+                    rolling_num_unused = 0
+                else:
+                    if rolling_num_unused >= gap_limit:
+                        found.add(addr)
+                    rolling_num_unused += 1
+
+        process_addresses(self.get_receiving_addresses(), self.gap_limit)
+        process_addresses(self.get_change_addresses(), self.gap_limit_for_change)
+        return found
 
     def get_address_index(self, address) -> Optional[Sequence[int]]:
         return self.db.get_address_index(address) or self._ephemeral_addr_to_addr_index.get(address)
+
+    def get_address_path_str(self, address):
+        intpath = self.get_address_index(address)
+        if intpath is None:
+            return None
+        return convert_bip32_intpath_to_strpath(intpath)
 
     def _learn_derivation_path_for_address_from_txinout(self, txinout, address):
         for ks in self.get_keystores():
@@ -2434,7 +2472,7 @@ class Wallet(object):
     This class is actually a factory that will return a wallet of the correct
     type when passed a WalletStorage instance."""
 
-    def __new__(self, db, storage: WalletStorage, *, config: SimpleConfig):
+    def __new__(self, db: 'WalletDB', storage: Optional[WalletStorage], *, config: SimpleConfig):
         wallet_type = db.get('wallet_type')
         WalletClass = Wallet.wallet_class(wallet_type)
         wallet = WalletClass(db, storage, config=config)

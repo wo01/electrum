@@ -231,7 +231,11 @@ class ElectrumWindow(App):
             self.show_info(_('Payment Received') + '\n' + key)
             self._trigger_update_history()
 
-    def on_invoice_status(self, event, key, status):
+    def on_invoice_status(self, event, key):
+        req = self.wallet.get_invoice(key)
+        if req is None:
+            return
+        status = req['status']
         # todo: update single item
         self.update_tab('send')
         if self.invoice_popup and self.invoice_popup.key == key:
@@ -954,7 +958,7 @@ class ElectrumWindow(App):
 
     def on_resume(self):
         now = time.time()
-        if self.wallet and self.wallet.has_password() and now - self.pause_time > 60:
+        if self.wallet and self.wallet.has_password() and now - self.pause_time > 5*60:
             self.password_dialog(check_password=self.check_pin_code, on_success=None, on_failure=self.stop, is_password=False)
         if self.nfcscanner:
             self.nfcscanner.nfc_enable()
@@ -1039,6 +1043,11 @@ class ElectrumWindow(App):
     def tx_dialog(self, tx):
         from .uix.dialogs.tx_dialog import TxDialog
         d = TxDialog(self, tx)
+        d.open()
+
+    def lightning_tx_dialog(self, tx):
+        from .uix.dialogs.lightning_tx_dialog import LightningTxDialog
+        d = LightningTxDialog(self, tx)
         d.open()
 
     def sign_tx(self, *args):

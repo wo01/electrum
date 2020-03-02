@@ -205,6 +205,9 @@ class TxOutpoint(NamedTuple):
     def to_str(self) -> str:
         return f"{self.txid.hex()}:{self.out_idx}"
 
+    def to_json(self):
+        return [self.txid.hex(), self.out_idx]
+
     def serialize_to_network(self) -> bytes:
         return self.txid[::-1] + bfh(int_to_hex(self.out_idx, 4))
 
@@ -269,7 +272,8 @@ class BCDataStream(object):
         self.input = None
         self.read_cursor = 0
 
-    def write(self, _bytes):  # Initialize with string of _bytes
+    def write(self, _bytes: Union[bytes, bytearray]):  # Initialize with string of _bytes
+        assert isinstance(_bytes, (bytes, bytearray))
         if self.input is None:
             self.input = bytearray(_bytes)
         else:
@@ -299,20 +303,26 @@ class BCDataStream(object):
     def get_remains(self):
         return self.input[self.read_cursor::]
 
-    def read_bytes(self, length) -> bytes:
-        try:
-            result = self.input[self.read_cursor:self.read_cursor+length]  # type: bytearray
+    def read_bytes(self, length: int) -> bytes:
+        if self.input is None:
+            raise SerializationError("call write(bytes) before trying to deserialize")
+        assert length >= 0
+        input_len = len(self.input)
+        read_begin = self.read_cursor
+        read_end = read_begin + length
+        if 0 <= read_begin <= read_end <= input_len:
+            result = self.input[read_begin:read_end]  # type: bytearray
             self.read_cursor += length
             return bytes(result)
-        except IndexError:
-            raise SerializationError("attempt to read past end of buffer") from None
+        else:
+            raise SerializationError('attempt to read past end of buffer')
 
     def can_read_more(self) -> bool:
         if not self.input:
             return False
         return self.read_cursor < len(self.input)
 
-    def read_boolean(self): return self.read_bytes(1)[0] != chr(0)
+    def read_boolean(self) -> bool: return self.read_bytes(1) != b'\x00'
     def read_int8(self): return self._read_num('<b')
     def read_uint8(self): return self._read_num('<B')
     def read_int16(self): return self._read_num('<h')
@@ -322,7 +332,7 @@ class BCDataStream(object):
     def read_int64(self): return self._read_num('<q')
     def read_uint64(self): return self._read_num('<Q')
 
-    def write_boolean(self, val): return self.write(chr(1) if val else chr(0))
+    def write_boolean(self, val): return self.write(b'\x01' if val else b'\x00')
     def write_int8(self, val): return self._write_num('<b', val)
     def write_uint8(self, val): return self._write_num('<B', val)
     def write_int16(self, val): return self._write_num('<h', val)
@@ -422,20 +432,32 @@ class OPPushDataGeneric:
 
 
 OPPushDataPubkey = OPPushDataGeneric(lambda x: x in (33, 65))
-# note that this does not include x_pubkeys !
+
+SCRIPTPUBKEY_TEMPLATE_P2PKH = [opcodes.OP_DUP, opcodes.OP_HASH160,
+                               OPPushDataGeneric(lambda x: x == 20),
+                               opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG]
+SCRIPTPUBKEY_TEMPLATE_P2SH = [opcodes.OP_HASH160, OPPushDataGeneric(lambda x: x == 20), opcodes.OP_EQUAL]
+SCRIPTPUBKEY_TEMPLATE_WITNESS_V0 = [opcodes.OP_0, OPPushDataGeneric(lambda x: x in (20, 32))]
 
 
-def match_decoded(decoded, to_match):
-    if decoded is None:
+def match_script_against_template(script, template) -> bool:
+    """Returns whether 'script' matches 'template'."""
+    if script is None:
         return False
-    if len(decoded) != len(to_match):
+    # optionally decode script now:
+    if isinstance(script, (bytes, bytearray)):
+        try:
+            script = [x for x in script_GetOp(script)]
+        except MalformedBitcoinScript:
+            return False
+    if len(script) != len(template):
         return False
-    for i in range(len(decoded)):
-        to_match_item = to_match[i]
-        decoded_item = decoded[i]
-        if OPPushDataGeneric.is_instance(to_match_item) and to_match_item.check_data_len(decoded_item[0]):
+    for i in range(len(script)):
+        template_item = template[i]
+        script_item = script[i]
+        if OPPushDataGeneric.is_instance(template_item) and template_item.check_data_len(script_item[0]):
             continue
-        if to_match_item != decoded_item[0]:
+        if template_item != script_item[0]:
             return False
     return True
 
@@ -444,28 +466,25 @@ def get_address_from_output_script(_bytes: bytes, *, net=None) -> Optional[str]:
     try:
         decoded = [x for x in script_GetOp(_bytes)]
     except MalformedBitcoinScript:
-        decoded = None
+        return None
 
     # p2pkh
-    match = [opcodes.OP_DUP, opcodes.OP_HASH160, OPPushDataGeneric(lambda x: x == 20), opcodes.OP_EQUALVERIFY, opcodes.OP_CHECKSIG]
-    if match_decoded(decoded, match):
+    if match_script_against_template(decoded, SCRIPTPUBKEY_TEMPLATE_P2PKH):
         return hash160_to_p2pkh(decoded[2][1], net=net)
 
     # p2sh
-    match = [opcodes.OP_HASH160, OPPushDataGeneric(lambda x: x == 20), opcodes.OP_EQUAL]
-    if match_decoded(decoded, match):
+    if match_script_against_template(decoded, SCRIPTPUBKEY_TEMPLATE_P2SH):
         return hash160_to_p2sh(decoded[1][1], net=net)
 
     # segwit address (version 0)
-    match = [opcodes.OP_0, OPPushDataGeneric(lambda x: x in (20, 32))]
-    if match_decoded(decoded, match):
+    if match_script_against_template(decoded, SCRIPTPUBKEY_TEMPLATE_WITNESS_V0):
         return hash_to_segwit_addr(decoded[1][1], witver=0, net=net)
 
     # segwit address (version 1-16)
     future_witness_versions = list(range(opcodes.OP_1, opcodes.OP_16 + 1))
     for witver, opcode in enumerate(future_witness_versions, start=1):
         match = [opcode, OPPushDataGeneric(lambda x: 2 <= x <= 40)]
-        if match_decoded(decoded, match):
+        if match_script_against_template(decoded, match):
             return hash_to_segwit_addr(decoded[1][1], witver=witver, net=net)
 
     return None
@@ -615,8 +634,8 @@ class Transaction:
         self.expiryHeight = 0 # height + 40
         self._joinsplitsraw = b'\x00'
         self._saplingraw = b'\x00' * (8+1+1+1) # ValuBalance + spend + output + joinsplits
-        self.locktime = 0
-        self.version = 4
+        self._locktime = 0
+        self._version = 4
 
         self._cached_txid = None  # type: Optional[str]
 
@@ -631,10 +650,28 @@ class Transaction:
         self._inputs = None
         self.deserialize()
 
+    @property
+    def locktime(self):
+        return self._locktime
+
+    @locktime.setter
+    def locktime(self, value):
+        self._locktime = value
+        self.invalidate_ser_cache()
+
+    @property
+    def version(self):
+        return self._version
+
+    @version.setter
+    def version(self, value):
+        self._version = value
+        self.invalidate_ser_cache()
+
     def to_json(self) -> dict:
         d = {
-            'version': self.version,
-            'locktime': self.locktime,
+            'version': self._version,
+            'locktime': self._locktime,
             'inputs': [txin.to_json() for txin in self.inputs()],
             'outputs': [txout.to_json() for txout in self.outputs()],
         }
@@ -662,12 +699,12 @@ class Transaction:
         header = vds.read_uint32()
         self.overwintered = ((header >> 31) == 1)
         if self.overwintered:
-            self.version = header & 0x7fffffff
+            self._version = header & 0x7fffffff
         else:
-            self.version = header
-        if self.version >= 3:
+            self._version = header
+        if self._version >= 3:
             self.versionGroupId = vds.read_uint32()
-        self.saplinged = (self.version >= 4)
+        self.saplinged = (self._version >= 4)
         n_vin = vds.read_compact_size()
 #        is_segwit = (n_vin == 0) # if private address, n_vin == 0
         is_segwit = 0
@@ -676,34 +713,38 @@ class Transaction:
             if marker != b'\x01':
                 raise ValueError('invalid txn marker byte: {}'.format(marker))
             n_vin = vds.read_compact_size()
+        if n_vin < 1:
+            raise SerializationError('tx needs to have at least 1 input')
         self._inputs = [parse_input(vds) for i in range(n_vin)]
         n_vout = vds.read_compact_size()
+        if n_vout < 1:
+            raise SerializationError('tx needs to have at least 1 output')
         self._outputs = [parse_output(vds) for i in range(n_vout)]
         if is_segwit:
             for txin in self._inputs:
                 parse_witness(vds, txin)
-        self.locktime = vds.read_uint32()
-        if self.version >= 3:
+        self._locktime = vds.read_uint32()
+        if self._version >= 3:
             self.expiryHeight = vds.read_uint32()
         n_ShieldedSpend = 0
         n_ShieldedOutput = 0
-        if self.version >= 4:
+        if self._version >= 4:
             self._saplingraw = vds.get_remains()
             self._valueBalance = vds.read_int64()
             n_ShieldedSpend = vds.read_compact_size()
             self.shieldedSpend = [parse_ShieldedSpend(vds) for i in range(n_ShieldedSpend)]
             n_ShieldedOutput = vds.read_compact_size()
             self.shieldedOutput = [parse_ShieldedOutput(vds) for i in range(n_ShieldedOutput)]
-        if self.version >= 2:
+        if self._version >= 2:
             self._joinsplitsraw = vds.get_remains()
             self.n_JSDescs = vds.read_compact_size()
-            useGroth = (self.version >= 4)
+            useGroth = (self._version >= 4)
             self._joinsplits = [parse_JSDescription(vds, useGroth) for i in range(self.n_JSDescs)]
             self._vpub_new = sum(self._joinsplits[x]['vpub_new'] for x in range(self.n_JSDescs))
             if self.n_JSDescs > 0:
                 self.joinSplitPubKey = vds.read_bytes(32)
                 self.joinSplitSig = vds.read_bytes(64)
-        if self.version >= 4 and (n_ShieldedSpend != 0 or n_ShieldedOutput != 0):
+        if self._version >= 4 and (n_ShieldedSpend != 0 or n_ShieldedOutput != 0):
             self.bindingSig = vds.read_bytes(64)
         if vds.can_read_more():
             raise SerializationError('extra junk at the end')
@@ -908,12 +949,12 @@ class Transaction:
         """
         self.deserialize()
         if self.overwintered:
-            nVersion = int_to_hex(self.version + 0x80000000, 4)
+            nVersion = int_to_hex(self._version + 0x80000000, 4)
             nVersionGroupId = int_to_hex(self.versionGroupId, 4)
             nExpiryHeight = int_to_hex(self.expiryHeight, 4)
         else:
-            nVersion = int_to_hex(self.version, 4)
-        nLocktime = int_to_hex(self.locktime, 4)
+            nVersion = int_to_hex(self._version, 4)
+        nLocktime = int_to_hex(self._locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
         valueBalance = int_to_hex(self._valueBalance, 8)
@@ -945,7 +986,7 @@ class Transaction:
                     return header
             else:
                 header = header + txins + txouts + nLocktime
-            if self.version >= 2:
+            if self._version >= 2:
                 return header + joinSplitsRaw.hex()
             else:
                 return header
@@ -1521,14 +1562,13 @@ class PartialTxInput(TxInput, PSBTSection):
                 except MalformedBitcoinScript:
                     decoded = None
                 # witness version 0
-                match = [opcodes.OP_0, OPPushDataGeneric(lambda x: x in (20, 32))]
-                if match_decoded(decoded, match):
+                if match_script_against_template(decoded, SCRIPTPUBKEY_TEMPLATE_WITNESS_V0):
                     return True
                 # witness version 1-16
                 future_witness_versions = list(range(opcodes.OP_1, opcodes.OP_16 + 1))
                 for witver, opcode in enumerate(future_witness_versions, start=1):
                     match = [opcode, OPPushDataGeneric(lambda x: 2 <= x <= 40)]
-                    if match_decoded(decoded, match):
+                    if match_script_against_template(decoded, match):
                         return True
                 return False
 
@@ -1756,9 +1796,9 @@ class PartialTransaction(Transaction):
         self._inputs = list(inputs)
         self._outputs = list(outputs)
         if locktime is not None:
-            self.locktime = locktime
+            self._locktime = locktime
         if version is not None:
-            self.version = version
+            self._version = version
         self.BIP69_sort()
         return self
 
@@ -1874,13 +1914,13 @@ class PartialTransaction(Transaction):
     def serialize_preimage(self, txin_index: int, *,
                            bip143_shared_txdigest_fields: BIP143SharedTxDigestFields = None) -> str:
         if self.overwintered:
-            nVersion = int_to_hex(self.version + 0x80000000, 4)
+            nVersion = int_to_hex(self._version + 0x80000000, 4)
             nVersionGroupId = int_to_hex(self.versionGroupId, 4)
             nExpiryHeight = int_to_hex(self.expiryHeight, 4)
         else:
-            nVersion = int_to_hex(self.version, 4)
+            nVersion = int_to_hex(self._version, 4)
         nHashType = int_to_hex(1, 4)  # SIGHASH_ALL
-        nLocktime = int_to_hex(self.locktime, 4)
+        nLocktime = int_to_hex(self._locktime, 4)
         inputs = self.inputs()
         outputs = self.outputs()
         txin = inputs[txin_index]

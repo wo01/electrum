@@ -208,13 +208,15 @@ class Satoshis(object):
 
     def __new__(cls, value):
         self = super(Satoshis, cls).__new__(cls)
+        # note: 'value' sometimes has msat precision
         self.value = value
         return self
 
     def __repr__(self):
-        return 'Satoshis(%d)'%self.value
+        return f'Satoshis({self.value})'
 
     def __str__(self):
+        # note: precision is truncated to satoshis here
         return format_satoshis(self.value)
 
     def __eq__(self, other):
@@ -564,7 +566,9 @@ def xor_bytes(a: bytes, b: bytes) -> bytes:
 
 
 def user_dir():
-    if 'ANDROID_DATA' in os.environ:
+    if "ELECTRUMDIR" in os.environ:
+        return os.environ["ELECTRUMDIR"]
+    elif 'ANDROID_DATA' in os.environ:
         return android_data_dir()
     elif os.name == 'posix':
         return os.path.join(os.environ["HOME"], ".electrum-koto")
@@ -1082,14 +1086,14 @@ class NetworkJobOnDefaultServer(Logger):
         """Initialise fields. Called every time the underlying
         server connection changes.
         """
-        self.group = SilentTaskGroup()
+        self.taskgroup = SilentTaskGroup()
 
     async def _start(self, interface: 'Interface'):
         self.interface = interface
-        await interface.group.spawn(self._start_tasks)
+        await interface.taskgroup.spawn(self._start_tasks)
 
     async def _start_tasks(self):
-        """Start tasks in self.group. Called every time the underlying
+        """Start tasks in self.taskgroup. Called every time the underlying
         server connection changes.
         """
         raise NotImplementedError()  # implemented by subclasses
@@ -1099,7 +1103,7 @@ class NetworkJobOnDefaultServer(Logger):
         await self._stop()
 
     async def _stop(self):
-        await self.group.cancel_remaining()
+        await self.taskgroup.cancel_remaining()
 
     @log_exceptions
     async def _restart(self, *args):
