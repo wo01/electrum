@@ -265,6 +265,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                          'new_transaction', 'status',
                          'banner', 'verified', 'fee', 'fee_histogram', 'on_quotes',
                          'on_history', 'channel', 'channels_updated',
+                         'payment_failed', 'payment_succeeded',
                          'invoice_status', 'request_status', 'ln_gossip_sync_progress']
             # To avoid leaking references to "self" that prevent the
             # window from being GC-ed when closed, callbacks should be
@@ -419,6 +420,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             self.on_request_status(*args)
         elif event == 'invoice_status':
             self.on_invoice_status(*args)
+        elif event == 'payment_succeeded':
+            self.on_payment_succeeded(*args)
+        elif event == 'payment_failed':
+            self.on_payment_failed(*args)
         elif event == 'status':
             self.update_status()
         elif event == 'banner':
@@ -969,6 +974,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         d = address_dialog.AddressDialog(self, addr)
         d.exec_()
 
+    def show_channel(self, channel_id):
+        from . import channel_details
+        channel_details.ChannelDetailsDialog(self, channel_id).show()
+
     def show_transaction(self, tx, *, tx_desc=None):
         '''tx_desc is set only for txs created in the Send tab'''
         show_transaction(tx, parent=self, desc=tx_desc)
@@ -1444,15 +1453,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         req = self.wallet.get_invoice(key)
         if req is None:
             return
-        status = req['status']
         self.invoice_list.update_item(key, req)
-        if status == PR_PAID:
-            self.show_message(_('Payment succeeded'))
-            self.need_update.set()
-        elif status == PR_FAILED:
-            self.show_error(_('Payment failed'))
-        else:
-            pass
+
+    def on_payment_succeeded(self, key, description=None):
+        self.show_message(_('Payment succeeded'))
+        self.need_update.set()
+
+    def on_payment_failed(self, key, reason):
+        self.show_error(_('Payment failed') + '\n\n' + reason)
 
     def read_invoice(self):
         if self.check_send_tab_payto_line_and_show_errors():
@@ -2071,6 +2079,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
     def update_lightning_icon(self):
         if self.lightning_button is None:
+            return
+        if not self.network.is_lightning_running():
             return
         cur, total = self.network.lngossip.get_sync_progress_estimate()
         # self.logger.debug(f"updating lngossip sync progress estimate: cur={cur}, total={total}")

@@ -70,9 +70,9 @@ class channel_states(IntEnum):
                         #  - Non-funding node: has sent the funding_signed message.
     FUNDED          = 2 # Funding tx was mined (requires min_depth and tx verification)
     OPEN            = 3 # both parties have sent funding_locked
-    FORCE_CLOSING   = 4 # force-close tx has been broadcast
-    CLOSING         = 5 # shutdown has been sent.
-    CLOSED          = 6 # funding txo has been spent
+    CLOSING         = 4 # shutdown has been sent, and closing tx is unconfirmed.
+    FORCE_CLOSING   = 5 # we force-closed, and closing tx is unconfirmed. (otherwise we remain OPEN)
+    CLOSED          = 6 # closing tx has been mined
     REDEEMED        = 7 # we can stop watching
 
 class peer_states(IntEnum):
@@ -98,7 +98,9 @@ state_transitions = [
     (cs.OPEN, cs.CLOSED),
     (cs.CLOSING, cs.CLOSING), # if we reestablish
     (cs.CLOSING, cs.CLOSED),
+    (cs.FORCE_CLOSING, cs.FORCE_CLOSING), # allow multiple attempts
     (cs.FORCE_CLOSING, cs.CLOSED),
+    (cs.FORCE_CLOSING, cs.REDEEMED),
     (cs.CLOSED, cs.REDEEMED),
     (cs.OPENING, cs.REDEEMED), # channel never funded (dropped from mempool)
     (cs.PREOPENING, cs.REDEEMED), # channel never funded
@@ -329,6 +331,16 @@ class Channel(Logger):
     def get_state(self):
         return self._state
 
+    def get_state_for_GUI(self):
+        # status displayed in the GUI
+        cs = self.get_state()
+        if self.is_closed():
+            return cs.name
+        ps = self.peer_state
+        if ps != peer_states.GOOD:
+            return ps.name
+        return cs.name
+
     def is_open(self):
         return self.get_state() == channel_states.OPEN
 
@@ -370,6 +382,9 @@ class Channel(Logger):
     def get_closing_height(self):
         return self.storage.get('closing_height')
 
+    def delete_closing_height(self):
+        self.storage.pop('closing_height', None)
+
     def is_redeemed(self):
         return self.get_state() == channel_states.REDEEMED
 
@@ -400,7 +415,7 @@ class Channel(Logger):
         return True
 
     def should_try_to_reestablish_peer(self) -> bool:
-        return channel_states.PREOPENING < self._state < channel_states.CLOSED and self.peer_state == peer_states.DISCONNECTED
+        return channel_states.PREOPENING < self._state < channel_states.FORCE_CLOSING and self.peer_state == peer_states.DISCONNECTED
 
     def get_funding_address(self):
         script = funding_output_script(self.config[LOCAL], self.config[REMOTE])
@@ -608,7 +623,7 @@ class Channel(Logger):
                 reason = self._receive_fail_reasons.get(htlc.htlc_id)
                 self.lnworker.payment_failed(self, htlc.payment_hash, reason)
 
-    def balance(self, whose, *, ctx_owner=HTLCOwner.LOCAL, ctn=None):
+    def balance(self, whose: HTLCOwner, *, ctx_owner=HTLCOwner.LOCAL, ctn: int = None) -> int:
         """
         This balance in mSAT is not including reserve and fees.
         So a node cannot actually use its whole balance.
@@ -621,21 +636,10 @@ class Channel(Logger):
         """
         assert type(whose) is HTLCOwner
         initial = self.config[whose].initial_msat
-
-        for direction, htlc in self.hm.all_settled_htlcs_ever(ctx_owner, ctn):
-            # note: could "simplify" to (whose * ctx_owner == direction * SENT)
-            if whose == ctx_owner:
-                if direction == SENT:
-                    initial -= htlc.amount_msat
-                else:
-                    initial += htlc.amount_msat
-            else:
-                if direction == SENT:
-                    initial += htlc.amount_msat
-                else:
-                    initial -= htlc.amount_msat
-
-        return initial
+        return self.hm.get_balance_msat(whose=whose,
+                                        ctx_owner=ctx_owner,
+                                        ctn=ctn,
+                                        initial_balance_msat=initial)
 
     def balance_minus_outgoing_htlcs(self, whose: HTLCOwner, *, ctx_owner: HTLCOwner = HTLCOwner.LOCAL):
         """
@@ -644,8 +648,11 @@ class Channel(Logger):
         """
         assert type(whose) is HTLCOwner
         ctn = self.get_next_ctn(ctx_owner)
-        return self.balance(whose, ctx_owner=ctx_owner, ctn=ctn)\
-                - htlcsum(self.hm.htlcs_by_direction(ctx_owner, SENT, ctn).values())
+        return self.balance(whose, ctx_owner=ctx_owner, ctn=ctn) - self.unsettled_sent_balance(ctx_owner)
+
+    def unsettled_sent_balance(self, subject: HTLCOwner = LOCAL):
+        ctn = self.get_next_ctn(subject)
+        return htlcsum(self.hm.htlcs_by_direction(subject, SENT, ctn).values())
 
     def available_to_spend(self, subject):
         """
@@ -809,7 +816,7 @@ class Channel(Logger):
     def make_commitment(self, subject, this_point, ctn) -> PartialTransaction:
         assert type(subject) is HTLCOwner
         feerate = self.get_feerate(subject, ctn)
-        other = REMOTE if LOCAL == subject else LOCAL
+        other = subject.inverted()
         local_msat = self.balance(subject, ctx_owner=subject, ctn=ctn)
         remote_msat = self.balance(other, ctx_owner=subject, ctn=ctn)
         received_htlcs = self.hm.htlcs_by_direction(subject, SENT if subject == LOCAL else RECEIVED, ctn).values()
