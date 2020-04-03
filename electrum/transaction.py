@@ -798,6 +798,7 @@ class Transaction:
 
     @classmethod
     def is_segwit_input(cls, txin: 'TxInput', *, guess_for_address=False) -> bool:
+        return False
         if txin.witness not in (b'\x00', b'', None):
             return True
         if not isinstance(txin, PartialTxInput):
@@ -994,7 +995,10 @@ class Transaction:
             if not all_segwit and not self.is_complete():
                 return None
             try:
-                if self.saplinged:
+                is_coinbase = False
+                if (len(self.inputs()) > 0):
+                    is_coinbase = self.inputs()[0].is_coinbase_input()
+                if self.saplinged and not is_coinbase:
                     ser = self.serialize_to_network(force_legacy=True, withSig=False)
                 else:
                     ser = self.serialize_to_network(force_legacy=True)
