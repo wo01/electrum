@@ -23,10 +23,11 @@ from .bitcoin import push_script, redeem_script_to_address, address_to_script
 from . import segwit_addr
 from .i18n import _
 from .lnaddr import lndecode
-from .bip32 import BIP32Node
+from .bip32 import BIP32Node, BIP32_PRIME
+from .transaction import BCDataStream
 
 if TYPE_CHECKING:
-    from .lnchannel import Channel
+    from .lnchannel import Channel, AbstractChannel
     from .lnrouter import LNPaymentRoute
     from .lnonion import OnionRoutingFailureMessage
 
@@ -46,6 +47,11 @@ def ln_dummy_address():
 
 from .json_db import StoredObject
 
+
+def channel_id_from_funding_tx(funding_txid: str, funding_index: int) -> Tuple[bytes, bytes]:
+    funding_txid_bytes = bytes.fromhex(funding_txid)[::-1]
+    i = int.from_bytes(funding_txid_bytes, 'big') ^ funding_index
+    return i.to_bytes(32, 'big'), funding_txid_bytes
 
 hex_to_bytes = lambda v: v if isinstance(v, bytes) else bytes.fromhex(v) if v is not None else None
 json_to_keypair = lambda v: v if isinstance(v, OnlyPubkeyKeypair) else Keypair(**v) if len(v)==2 else OnlyPubkeyKeypair(**v)
@@ -77,11 +83,27 @@ class Config(StoredObject):
 
 @attr.s
 class LocalConfig(Config):
-    per_commitment_secret_seed = attr.ib(type=bytes, converter=hex_to_bytes)
+    channel_seed = attr.ib(type=bytes, converter=hex_to_bytes)  # type: Optional[bytes]
     funding_locked_received = attr.ib(type=bool)
     was_announced = attr.ib(type=bool)
     current_commitment_signature = attr.ib(type=bytes, converter=hex_to_bytes)
     current_htlc_signatures = attr.ib(type=bytes, converter=hex_to_bytes)
+    per_commitment_secret_seed = attr.ib(type=bytes, converter=hex_to_bytes)
+
+    @classmethod
+    def from_seed(self, **kwargs):
+        channel_seed = kwargs['channel_seed']
+        static_remotekey = kwargs.pop('static_remotekey')
+        node = BIP32Node.from_rootseed(channel_seed, xtype='standard')
+        keypair_generator = lambda family: generate_keypair(node, family)
+        kwargs['per_commitment_secret_seed'] = keypair_generator(LnKeyFamily.REVOCATION_ROOT).privkey
+        kwargs['multisig_key'] = keypair_generator(LnKeyFamily.MULTISIG)
+        kwargs['htlc_basepoint'] = keypair_generator(LnKeyFamily.HTLC_BASE)
+        kwargs['delayed_basepoint'] = keypair_generator(LnKeyFamily.DELAY_BASE)
+        kwargs['revocation_basepoint'] = keypair_generator(LnKeyFamily.REVOCATION_BASE)
+        kwargs['payment_basepoint'] = OnlyPubkeyKeypair(static_remotekey) if static_remotekey else keypair_generator(LnKeyFamily.PAYMENT_BASE)
+        return LocalConfig(**kwargs)
+
 
 @attr.s
 class RemoteConfig(Config):
@@ -99,6 +121,66 @@ class ChannelConstraints(StoredObject):
     capacity = attr.ib(type=int)
     is_initiator = attr.ib(type=bool)  # note: sometimes also called "funder"
     funding_txn_minimum_depth = attr.ib(type=int)
+
+@attr.s
+class ChannelBackupStorage(StoredObject):
+    node_id = attr.ib(type=bytes, converter=hex_to_bytes)
+    privkey = attr.ib(type=bytes, converter=hex_to_bytes)
+    funding_txid = attr.ib(type=str)
+    funding_index = attr.ib(type=int, converter=int)
+    funding_address = attr.ib(type=str)
+    host = attr.ib(type=str)
+    port = attr.ib(type=int, converter=int)
+    is_initiator = attr.ib(type=bool)
+    channel_seed = attr.ib(type=bytes, converter=hex_to_bytes)
+    local_delay = attr.ib(type=int, converter=int)
+    remote_delay = attr.ib(type=int, converter=int)
+    remote_payment_pubkey = attr.ib(type=bytes, converter=hex_to_bytes)
+    remote_revocation_pubkey = attr.ib(type=bytes, converter=hex_to_bytes)
+
+    def funding_outpoint(self):
+        return Outpoint(self.funding_txid, self.funding_index)
+
+    def channel_id(self):
+        chan_id, _ = channel_id_from_funding_tx(self.funding_txid, self.funding_index)
+        return chan_id
+
+    def to_bytes(self):
+        vds = BCDataStream()
+        vds.write_boolean(self.is_initiator)
+        vds.write_bytes(self.privkey, 32)
+        vds.write_bytes(self.channel_seed, 32)
+        vds.write_bytes(self.node_id, 33)
+        vds.write_bytes(bfh(self.funding_txid), 32)
+        vds.write_int16(self.funding_index)
+        vds.write_string(self.funding_address)
+        vds.write_bytes(self.remote_payment_pubkey, 33)
+        vds.write_bytes(self.remote_revocation_pubkey, 33)
+        vds.write_int16(self.local_delay)
+        vds.write_int16(self.remote_delay)
+        vds.write_string(self.host)
+        vds.write_int16(self.port)
+        return vds.input
+
+    @staticmethod
+    def from_bytes(s):
+        vds = BCDataStream()
+        vds.write(s)
+        return ChannelBackupStorage(
+            is_initiator = bool(vds.read_bytes(1)),
+            privkey = vds.read_bytes(32).hex(),
+            channel_seed = vds.read_bytes(32).hex(),
+            node_id = vds.read_bytes(33).hex(),
+            funding_txid = vds.read_bytes(32).hex(),
+            funding_index = vds.read_int16(),
+            funding_address = vds.read_string(),
+            remote_payment_pubkey = vds.read_bytes(33).hex(),
+            remote_revocation_pubkey = vds.read_bytes(33).hex(),
+            local_delay = vds.read_int16(),
+            remote_delay = vds.read_int16(),
+            host = vds.read_string(),
+            port = vds.read_int16())
+
 
 
 class ScriptHtlc(NamedTuple):
@@ -180,7 +262,8 @@ CHANNEL_OPENING_TIMEOUT = 24*60*60
 ##### CLTV-expiry-delta-related values
 # see https://github.com/lightningnetwork/lightning-rfc/blob/master/02-peer-protocol.md#cltv_expiry_delta-selection
 
-# the minimum cltv_expiry accepted for terminal payments
+# the minimum cltv_expiry accepted for newly received HTLCs
+# note: when changing, consider Blockchain.is_tip_stale()
 MIN_FINAL_CLTV_EXPIRY_ACCEPTED = 144
 # set it a tiny bit higher for invoices as blocks could get mined
 # during forward path of payment
@@ -422,8 +505,8 @@ def make_htlc_output_witness_script(is_received_htlc: bool, remote_revocation_pu
                                  payment_hash=payment_hash)
 
 
-def get_ordered_channel_configs(chan: 'Channel', for_us: bool) -> Tuple[Union[LocalConfig, RemoteConfig],
-                                                                        Union[LocalConfig, RemoteConfig]]:
+def get_ordered_channel_configs(chan: 'AbstractChannel', for_us: bool) -> Tuple[Union[LocalConfig, RemoteConfig],
+                                                                                Union[LocalConfig, RemoteConfig]]:
     conf =       chan.config[LOCAL] if     for_us else chan.config[REMOTE]
     other_conf = chan.config[LOCAL] if not for_us else chan.config[REMOTE]
     return conf, other_conf
@@ -699,9 +782,9 @@ def extract_ctn_from_tx(tx: Transaction, txin_index: int, funder_payment_basepoi
     obs = ((sequence & 0xffffff) << 24) + (locktime & 0xffffff)
     return get_obscured_ctn(obs, funder_payment_basepoint, fundee_payment_basepoint)
 
-def extract_ctn_from_tx_and_chan(tx: Transaction, chan: 'Channel') -> int:
-    funder_conf = chan.config[LOCAL] if     chan.constraints.is_initiator else chan.config[REMOTE]
-    fundee_conf = chan.config[LOCAL] if not chan.constraints.is_initiator else chan.config[REMOTE]
+def extract_ctn_from_tx_and_chan(tx: Transaction, chan: 'AbstractChannel') -> int:
+    funder_conf = chan.config[LOCAL] if     chan.is_initiator() else chan.config[REMOTE]
+    fundee_conf = chan.config[LOCAL] if not chan.is_initiator() else chan.config[REMOTE]
     return extract_ctn_from_tx(tx, txin_index=0,
                                funder_payment_basepoint=funder_conf.payment_basepoint.pubkey,
                                fundee_payment_basepoint=fundee_conf.payment_basepoint.pubkey)
@@ -1024,12 +1107,12 @@ def extract_nodeid(connect_contents: str) -> Tuple[bytes, str]:
 # key derivation
 # see lnd/keychain/derivation.go
 class LnKeyFamily(IntEnum):
-    MULTISIG = 0
-    REVOCATION_BASE = 1
-    HTLC_BASE = 2
-    PAYMENT_BASE = 3
-    DELAY_BASE = 4
-    REVOCATION_ROOT = 5
+    MULTISIG = 0 | BIP32_PRIME
+    REVOCATION_BASE = 1 | BIP32_PRIME
+    HTLC_BASE = 2 | BIP32_PRIME
+    PAYMENT_BASE = 3 | BIP32_PRIME
+    DELAY_BASE = 4 | BIP32_PRIME
+    REVOCATION_ROOT = 5 | BIP32_PRIME
     NODE_KEY = 6
 
 

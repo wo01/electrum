@@ -88,10 +88,6 @@ class DigitalBitbox_Client(HardwareClientBase):
         pass
 
 
-    def label(self):
-        return " "
-
-
     def is_pairable(self):
         return True
 
@@ -679,7 +675,7 @@ class DigitalBitboxPlugin(HW_PluginBase):
     def __init__(self, parent, config, name):
         HW_PluginBase.__init__(self, parent, config, name)
         if self.libraries_available:
-            self.device_manager().register_devices(self.DEVICE_IDS)
+            self.device_manager().register_devices(self.DEVICE_IDS, plugin=self)
 
         self.digitalbitbox_config = self.config.get('digitalbitbox', {})
 
@@ -709,6 +705,7 @@ class DigitalBitboxPlugin(HW_PluginBase):
             client.setupRunning = True
         wizard.run_task_without_blocking_gui(
             task=lambda: client.get_xpub("m/44'/510'", 'standard'))
+        return client
 
 
     def is_mobile_paired(self):
@@ -741,10 +738,11 @@ class DigitalBitboxPlugin(HW_PluginBase):
         return xpub
 
 
-    def get_client(self, keystore, force_pair=True):
-        devmgr = self.device_manager()
-        handler = keystore.handler
-        client = devmgr.client_for_keystore(self, handler, keystore, force_pair)
+    def get_client(self, keystore, force_pair=True, *,
+                   devices=None, allow_user_interaction=True):
+        client = super().get_client(keystore, force_pair,
+                                    devices=devices,
+                                    allow_user_interaction=allow_user_interaction)
         if client is not None:
             client.check_device_dialog()
         return client

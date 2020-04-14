@@ -15,7 +15,7 @@ class ColdcardCmdLineHandler(CmdLineHandler):
     def get_passphrase(self, msg, confirm):
         raise NotImplementedError
 
-    def get_pin(self, msg):
+    def get_pin(self, msg, *, show_strength=True):
         raise NotImplementedError
 
     def prompt_auth(self, msg):
@@ -27,12 +27,6 @@ class ColdcardCmdLineHandler(CmdLineHandler):
 
     def stop(self):
         pass
-
-    def show_message(self, msg, on_cancel=None):
-        print_stderr(msg)
-
-    def show_error(self, msg, blocking=False):
-        print_stderr(msg)
 
     def update_status(self, b):
         _logger.info(f'hw device status {b}')
