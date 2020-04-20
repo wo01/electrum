@@ -33,7 +33,7 @@ from aiorpcx import NetAddress
 import attr
 
 from . import ecc
-from . import constants
+from . import constants, util
 from .util import bfh, bh2u, chunks, TxMinedInfo
 from .bitcoin import redeem_script_to_address
 from .crypto import sha256, sha256d
@@ -679,18 +679,17 @@ class Channel(AbstractChannel):
 
     def set_frozen_for_sending(self, b: bool) -> None:
         self.storage['frozen_for_sending'] = bool(b)
-        if self.lnworker:
-            self.lnworker.network.trigger_callback('channel', self)
+        util.trigger_callback('channel', self)
 
     def is_frozen_for_receiving(self) -> bool:
         return self.storage.get('frozen_for_receiving', False)
 
     def set_frozen_for_receiving(self, b: bool) -> None:
         self.storage['frozen_for_receiving'] = bool(b)
-        if self.lnworker:
-            self.lnworker.network.trigger_callback('channel', self)
+        util.trigger_callback('channel', self)
 
-    def _assert_can_add_htlc(self, *, htlc_proposer: HTLCOwner, amount_msat: int) -> None:
+    def _assert_can_add_htlc(self, *, htlc_proposer: HTLCOwner, amount_msat: int,
+                             ignore_min_htlc_value: bool = False) -> None:
         """Raises PaymentFailure if the htlc_proposer cannot add this new HTLC.
         (this is relevant both for forwarding and endpoint)
         """
@@ -714,10 +713,11 @@ class Channel(AbstractChannel):
         strict = (htlc_proposer == LOCAL)
 
         # check htlc raw value
-        if amount_msat <= 0:
-            raise PaymentFailure("HTLC value must be positive")
-        if amount_msat < chan_config.htlc_minimum_msat:
-            raise PaymentFailure(f'HTLC value too small: {amount_msat} msat')
+        if not ignore_min_htlc_value:
+            if amount_msat <= 0:
+                raise PaymentFailure("HTLC value must be positive")
+            if amount_msat < chan_config.htlc_minimum_msat:
+                raise PaymentFailure(f'HTLC value too small: {amount_msat} msat')
         if amount_msat > LN_MAX_HTLC_VALUE_MSAT and not self._ignore_max_htlc_value:
             raise PaymentFailure(f"HTLC value over protocol maximum: {amount_msat} > {LN_MAX_HTLC_VALUE_MSAT} msat")
 
@@ -754,12 +754,15 @@ class Channel(AbstractChannel):
             return False
         return True
 
-    def can_receive(self, amount_msat: int, *, check_frozen=False) -> bool:
+    def can_receive(self, amount_msat: int, *, check_frozen=False,
+                    ignore_min_htlc_value: bool = False) -> bool:
         """Returns whether the remote can add an HTLC of given value."""
         if check_frozen and self.is_frozen_for_receiving():
             return False
         try:
-            self._assert_can_add_htlc(htlc_proposer=REMOTE, amount_msat=amount_msat)
+            self._assert_can_add_htlc(htlc_proposer=REMOTE,
+                                      amount_msat=amount_msat,
+                                      ignore_min_htlc_value=ignore_min_htlc_value)
         except PaymentFailure:
             return False
         return True
