@@ -898,11 +898,16 @@ class Commands:
         return True
 
     @command('n')
-    async def notify(self, address: str, URL: str):
-        """Watch an address. Every time the address changes, a http POST is sent to the URL."""
+    async def notify(self, address: str, URL: Optional[str]):
+        """Watch an address. Every time the address changes, a http POST is sent to the URL.
+        Call with an empty URL to stop watching an address.
+        """
         if not hasattr(self, "_notifier"):
             self._notifier = Notifier(self.network)
-        await self._notifier.start_watching_queue.put((address, URL))
+        if URL:
+            await self._notifier.start_watching_addr(address, URL)
+        else:
+            await self._notifier.stop_watching_addr(address)
         return True
 
     @command('wn')
@@ -1032,8 +1037,8 @@ class Commands:
                 'remote_pubkey': bh2u(chan.node_id),
                 'local_balance': chan.balance(LOCAL)//1000,
                 'remote_balance': chan.balance(REMOTE)//1000,
-                'local_reserve': chan.config[LOCAL].reserve_sat,
-                'remote_reserve': chan.config[REMOTE].reserve_sat,
+                'local_reserve': chan.config[REMOTE].reserve_sat, # their config has our reserve
+                'remote_reserve': chan.config[LOCAL].reserve_sat,
                 'local_unsettled_sent': chan.balance_tied_up_in_htlcs_by_direction(LOCAL, direction=SENT) // 1000,
                 'remote_unsettled_sent': chan.balance_tied_up_in_htlcs_by_direction(REMOTE, direction=SENT) // 1000,
             } for channel_id, chan in l
@@ -1077,7 +1082,7 @@ class Commands:
 
     @command('w')
     async def import_channel_backup(self, encrypted, wallet: Abstract_Wallet = None):
-        return wallet.lnworker.import_channel_backup(encrypted)
+        return wallet.lnbackups.import_channel_backup(encrypted)
 
     @command('wn')
     async def get_channel_ctx(self, channel_point, iknowwhatimdoing=False, wallet: Abstract_Wallet = None):
@@ -1263,6 +1268,8 @@ argparse._SubParsersAction.__call__ = subparser_call
 
 
 def add_network_options(parser):
+    parser.add_argument("-f", "--serverfingerprint", dest="serverfingerprint", default=None, help="only allow connecting to servers with a matching SSL certificate SHA256 fingerprint." + " " +
+                                                                                                  "To calculate this yourself: '$ openssl x509 -noout -fingerprint -sha256 -inform pem -in mycertfile.crt'. Enter as 64 hex chars.")
     parser.add_argument("-1", "--oneserver", action="store_true", dest="oneserver", default=None, help="connect to one server only")
     parser.add_argument("-s", "--server", dest="server", default=None, help="set server host:port:protocol, where protocol is either t (tcp) or s (ssl)")
     parser.add_argument("-p", "--proxy", dest="proxy", default=None, help="set proxy [type:]host[:port] (or 'none' to disable proxy), where type is socks4,socks5 or http")
