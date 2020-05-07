@@ -11,7 +11,7 @@ from . import ecc
 from .lnutil import (make_commitment_output_to_remote_address, make_commitment_output_to_local_witness_script,
                      derive_privkey, derive_pubkey, derive_blinded_pubkey, derive_blinded_privkey,
                      make_htlc_tx_witness, make_htlc_tx_with_open_channel, UpdateAddHtlc,
-                     LOCAL, REMOTE, make_htlc_output_witness_script, UnknownPaymentHash,
+                     LOCAL, REMOTE, make_htlc_output_witness_script,
                      get_ordered_channel_configs, privkey_to_pubkey, get_per_commitment_secret_from_seed,
                      RevocationStore, extract_ctn_from_tx_and_chan, UnableToDeriveSecret, SENT, RECEIVED,
                      map_htlcs_to_ctx_output_idxs, Direction)
@@ -193,7 +193,9 @@ def create_sweeptxs_for_our_ctx(*, chan: 'AbstractChannel', ctx: Transaction,
     to_local_witness_script = bh2u(make_commitment_output_to_local_witness_script(
         their_revocation_pubkey, to_self_delay, our_localdelayed_pubkey))
     to_local_address = redeem_script_to_address('p2wsh', to_local_witness_script)
-    their_payment_pubkey = derive_pubkey(their_conf.payment_basepoint.pubkey, our_pcp)
+    # to remote address
+    bpk = their_conf.payment_basepoint.pubkey
+    their_payment_pubkey = bpk if chan.is_static_remotekey_enabled() else derive_pubkey(their_conf.payment_basepoint.pubkey, our_pcp)
     to_remote_address = make_commitment_output_to_remote_address(their_payment_pubkey)
     # test ctx
     _logger.debug(f'testing our ctx: {to_local_address} {to_remote_address}')
@@ -230,11 +232,7 @@ def create_sweeptxs_for_our_ctx(*, chan: 'AbstractChannel', ctx: Transaction,
     def create_txns_for_htlc(*, htlc: 'UpdateAddHtlc', htlc_direction: Direction,
                              ctx_output_idx: int, htlc_relative_idx: int):
         if htlc_direction == RECEIVED:
-            try:
-                preimage = chan.lnworker.get_preimage(htlc.payment_hash)
-            except UnknownPaymentHash as e:
-                _logger.info(f'trying to sweep htlc from our latest ctx but getting {repr(e)}')
-                return
+            preimage = chan.lnworker.get_preimage(htlc.payment_hash)
         else:
             preimage = None
         htlctx_witness_script, htlc_tx = create_htlctx_that_spends_from_our_ctx(
@@ -373,11 +371,7 @@ def create_sweeptxs_for_their_ctx(*, chan: 'Channel', ctx: Transaction,
     def create_sweeptx_for_htlc(htlc: 'UpdateAddHtlc', is_received_htlc: bool,
                                 ctx_output_idx: int) -> None:
         if not is_received_htlc and not is_revocation:
-            try:
-                preimage = chan.lnworker.get_preimage(htlc.payment_hash)
-            except UnknownPaymentHash as e:
-                _logger.info(f'trying to sweep htlc from their latest ctx but getting {repr(e)}')
-                return
+            preimage = chan.lnworker.get_preimage(htlc.payment_hash)
         else:
             preimage = None
         htlc_output_witness_script = make_htlc_output_witness_script(

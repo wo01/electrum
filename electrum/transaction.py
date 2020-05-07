@@ -260,6 +260,12 @@ class TxInput:
             d['witness'] = self.witness.hex()
         return d
 
+    def witness_elements(self)-> Sequence[bytes]:
+        vds = BCDataStream()
+        vds.write(self.witness)
+        n = vds.read_compact_size()
+        return list(vds.read_bytes(vds.read_compact_size()) for i in range(n))
+
 
 class BCDataStream(object):
     """Workalike python implementation of Bitcoin's CDataStream class."""
@@ -1119,6 +1125,20 @@ class Transaction:
                 return o.value
         else:
             raise Exception('output not found', addr)
+
+    def get_input_idx_that_spent_prevout(self, prevout: TxOutpoint) -> Optional[int]:
+        # build cache if there isn't one yet
+        # note: can become stale and return incorrect data
+        #       if the tx is modified later; that's out of scope.
+        if not hasattr(self, '_prevout_to_input_idx'):
+            d = {}  # type: Dict[TxOutpoint, int]
+            for i, txin in enumerate(self.inputs()):
+                d[txin.prevout] = i
+            self._prevout_to_input_idx = d
+        idx = self._prevout_to_input_idx.get(prevout)
+        if idx is not None:
+            assert self.inputs()[idx].prevout == prevout
+        return idx
 
 
 def convert_raw_tx_to_hex(raw: Union[str, bytes]) -> str:
