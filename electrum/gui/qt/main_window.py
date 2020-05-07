@@ -692,8 +692,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         view_menu = menubar.addMenu(_("&View"))
         add_toggle_action(view_menu, self.addresses_tab)
         add_toggle_action(view_menu, self.utxo_tab)
-        if self.wallet.has_lightning():
-            add_toggle_action(view_menu, self.channels_tab)
+        add_toggle_action(view_menu, self.channels_tab)
         add_toggle_action(view_menu, self.contacts_tab)
         add_toggle_action(view_menu, self.console_tab)
 
@@ -2260,6 +2259,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             ks_type = str(keystore_types[0]) if keystore_types else _('No keystore')
             grid.addWidget(QLabel(ks_type), 4, 1)
         # lightning
+        grid.addWidget(QLabel(_('Lightning') + ':'), 5, 0)
         if self.wallet.can_have_lightning():
             if self.wallet.has_lightning():
                 lightning_b = QPushButton(_('Disable'))
@@ -2272,10 +2272,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                 lightning_b.clicked.connect(dialog.close)
                 lightning_b.clicked.connect(self.enable_lightning)
                 lightning_label = QLabel(_('Disabled'))
-            grid.addWidget(QLabel(_('Lightning')), 5, 0)
             grid.addWidget(lightning_label, 5, 1)
             grid.addWidget(lightning_b, 5, 2)
+        else:
+            grid.addWidget(QLabel(_("Not available for this wallet.")), 5, 1)
+            grid.addWidget(HelpButton(_("Lightning is currently restricted to HD wallets with p2wpkh addresses.")), 5, 2)
         vbox.addLayout(grid)
+
+        labels_clayout = None
 
         if self.wallet.is_deterministic():
             mpk_text = ShowQRTextEdit()
@@ -2286,8 +2290,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                 mpk_text.setText(mpk_list[index])
                 mpk_text.repaint()  # macOS hack for #4777
 
-            # declare this value such that the hooks can later figure out what to do
-            labels_clayout = None
             # only show the combobox in case multiple accounts are available
             if len(mpk_list) > 1:
                 # only show the combobox if multiple master keys are defined
