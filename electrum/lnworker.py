@@ -488,13 +488,12 @@ class LNWallet(LNWorker):
         self.features |= LnFeatures.OPTION_STATIC_REMOTEKEY_REQ
         self.payments = self.db.get_dict('lightning_payments')     # RHASH -> amount, direction, is_paid
         self.preimages = self.db.get_dict('lightning_preimages')   # RHASH -> preimage
-        self.sweep_address = wallet.get_receiving_address()
+        self.sweep_address = wallet.get_new_sweep_address_for_channel()  # TODO possible address-reuse
         self.logs = defaultdict(list)  # type: Dict[str, List[PaymentAttemptLog]]  # key is RHASH  # (not persisted)
         self.is_routing = set()        # (not persisted) keys of invoices that are in PR_ROUTING state
         # used in tests
         self.enable_htlc_settle = asyncio.Event()
         self.enable_htlc_settle.set()
-        self._fail_htlcs_with_temp_node_failure = False
 
         # note: accessing channels (besides simple lookup) needs self.lock!
         self._channels = {}  # type: Dict[bytes, Channel]
@@ -750,7 +749,7 @@ class LNWallet(LNWorker):
         # will raise if init fails
         await asyncio.wait_for(peer.initialized, LN_P2P_NETWORK_TIMEOUT)
         chan, funding_tx = await peer.channel_establishment_flow(
-            password,
+            password=password,
             funding_tx=funding_tx,
             funding_sat=funding_sat,
             push_msat=push_sat * 1000,
@@ -771,6 +770,8 @@ class LNWallet(LNWorker):
         self.add_channel(chan)
         channels_db = self.db.get_dict('channels')
         channels_db[chan.channel_id.hex()] = chan.storage
+        for addr in chan.get_wallet_addresses_channel_might_want_reserved():
+            self.wallet.set_reserved_state_of_address(addr, reserved=True)
         self.wallet.save_backup()
 
     def mktx_for_open_channel(self, *, coins: Sequence[PartialTxInput], funding_sat: int,
@@ -811,6 +812,7 @@ class LNWallet(LNWorker):
             if chan.short_channel_id == short_channel_id:
                 return chan
 
+    @log_exceptions
     async def _pay(self, invoice: str, amount_sat: int = None, *,
                    attempts: int = 1,
                    full_path: LNPaymentPath = None) -> Tuple[bool, List[PaymentAttemptLog]]:
@@ -928,12 +930,13 @@ class LNWallet(LNWorker):
                 assert payload['chain_hash'] == constants.net.rev_genesis_bytes()
                 payload['raw'] = channel_update_typed
             except:  # FIXME: too broad
-                message_type, payload = decode_msg(channel_update_as_received)
-                payload['raw'] = channel_update_as_received
-            # sanity check
-            if payload['chain_hash'] != constants.net.rev_genesis_bytes():
-                self.logger.info(f'could not decode channel_update for failed htlc: {channel_update_as_received.hex()}')
-                return True
+                try:
+                    message_type, payload = decode_msg(channel_update_as_received)
+                    payload['raw'] = channel_update_as_received
+                    assert payload['chain_hash'] != constants.net.rev_genesis_bytes()
+                except:
+                    self.logger.info(f'could not decode channel_update for failed htlc: {channel_update_as_received.hex()}')
+                    return True
             r = self.channel_db.add_channel_update(payload)
             blacklist = False
             short_channel_id = ShortChannelID(payload['short_channel_id'])
@@ -1214,19 +1217,21 @@ class LNWallet(LNWorker):
         """calculate routing hints (BOLT-11 'r' field)"""
         routing_hints = []
         channels = list(self.channels.values())
+        random.shuffle(channels)  # not sure this has any benefit but let's not leak channel order
         scid_to_my_channels = {chan.short_channel_id: chan for chan in channels
                                if chan.short_channel_id is not None}
-        ignore_min_htlc_value = False
         if amount_sat:
             amount_msat = 1000 * amount_sat
         else:
             # for no amt invoices, check if channel can receive at least 1 msat
             amount_msat = 1
-            ignore_min_htlc_value = True
         # note: currently we add *all* our channels; but this might be a privacy leak?
         for chan in channels:
-            if not chan.can_receive(amount_msat=amount_msat, check_frozen=True,
-                                    ignore_min_htlc_value=ignore_min_htlc_value):
+            # do minimal filtering of channels.
+            # we include channels that cannot *right now* receive (e.g. peer disconnected or balance insufficient)
+            if not (chan.is_open() and not chan.is_frozen_for_receiving()):
+                continue
+            if amount_msat > 1000 * chan.constraints.capacity:
                 continue
             chan_id = chan.short_channel_id
             assert isinstance(chan_id, bytes), chan_id
@@ -1306,6 +1311,8 @@ class LNWallet(LNWorker):
         with self.lock:
             self._channels.pop(chan_id)
             self.db.get('channels').pop(chan_id.hex())
+        for addr in chan.get_wallet_addresses_channel_might_want_reserved():
+            self.wallet.set_reserved_state_of_address(addr, reserved=False)
 
         util.trigger_callback('channels_updated', self.wallet)
         util.trigger_callback('wallet_updated', self.wallet)
@@ -1395,10 +1402,14 @@ class LNBackups(Logger):
         self.lock = threading.RLock()
         self.wallet = wallet
         self.db = wallet.db
-        self.sweep_address = wallet.get_receiving_address()
         self.channel_backups = {}
         for channel_id, cb in self.db.get_dict("channel_backups").items():
             self.channel_backups[bfh(channel_id)] = ChannelBackup(cb, sweep_address=self.sweep_address, lnworker=self)
+
+    @property
+    def sweep_address(self) -> str:
+        # TODO possible address-reuse
+        return self.wallet.get_new_sweep_address_for_channel()
 
     def channel_state_changed(self, chan):
         util.trigger_callback('channel', chan)

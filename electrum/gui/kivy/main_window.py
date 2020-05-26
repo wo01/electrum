@@ -19,6 +19,7 @@ from electrum.util import (profiler, InvalidPassword, send_exception_to_crash_re
                            PR_PAID, PR_FAILED, maybe_extract_bolt11_invoice)
 from electrum import blockchain
 from electrum.network import Network, TxBroadcastError, BestEffortRequestFailed
+from electrum.interface import PREFERRED_NETWORK_PROTOCOL, ServerAddr
 from .i18n import _
 
 from kivy.app import App
@@ -140,18 +141,19 @@ class ElectrumWindow(App):
 
     def choose_server_dialog(self, popup):
         from .uix.dialogs.choice_dialog import ChoiceDialog
-        protocol = 's'
-        def cb2(host):
-            from electrum import constants
-            pp = servers.get(host, constants.net.DEFAULT_PORTS)
-            port = pp.get(protocol, '')
-            popup.ids.host.text = host
-            popup.ids.port.text = port
+        protocol = PREFERRED_NETWORK_PROTOCOL
+        def cb2(server_str):
+            popup.ids.server_str.text = server_str
         servers = self.network.get_servers()
-        ChoiceDialog(_('Choose a server'), sorted(servers), popup.ids.host.text, cb2).open()
+        server_choices = {}
+        for _host, d in sorted(servers.items()):
+            port = d.get(protocol)
+            if port:
+                server = ServerAddr(_host, port, protocol=protocol)
+                server_choices[server.net_addr_str()] = _host
+        ChoiceDialog(_('Choose a server'), server_choices, popup.ids.server_str.text, cb2).open()
 
     def maybe_switch_to_server(self, server_str: str):
-        from electrum.interface import ServerAddr
         net_params = self.network.get_parameters()
         try:
             server = ServerAddr.from_str_with_inference(server_str)
@@ -919,7 +921,7 @@ class ElectrumWindow(App):
             return ''
         addr = None
         if self.send_screen:
-            addr = str(self.send_screen.screen.address)
+            addr = str(self.send_screen.address)
         if not addr:
             addr = self.wallet.dummy_address()
         outputs = [PartialTxOutput.from_address_and_value(addr, '!')]
@@ -942,7 +944,11 @@ class ElectrumWindow(App):
     def format_amount(self, x, is_diff=False, whitespaces=False):
         return format_satoshis(x, 0, self.decimal_point(), is_diff=is_diff, whitespaces=whitespaces)
 
-    def format_amount_and_units(self, x):
+    def format_amount_and_units(self, x) -> str:
+        if x is None:
+            return 'none'
+        if x == '!':
+            return 'max'
         return format_satoshis_plain(x, self.decimal_point()) + ' ' + self.base_unit
 
     def format_fee_rate(self, fee_rate):
@@ -1156,14 +1162,21 @@ class ElectrumWindow(App):
 
     def protected(self, msg, f, args):
         if self.electrum_config.get('pin_code'):
-            on_success = lambda pw: f(*(args + (self.password,)))
+            msg += "\n" + _("Enter your PIN code to proceed")
+            on_success = lambda pw: f(*args, self.password)
             self.pincode_dialog(
                 message = msg,
                 check_password=self.check_pin_code,
                 on_success=on_success,
                 on_failure=lambda: None)
         else:
-            f(*(args + (self.password,)))
+            d = Question(
+                msg,
+                lambda b: f(*args, self.password) if b else None,
+                yes_str=_("OK"),
+                no_str=_("Cancel"),
+                title=_("Confirm action"))
+            d.open()
 
     def toggle_lightning(self):
         if self.wallet.has_lightning():
@@ -1205,7 +1218,8 @@ class ElectrumWindow(App):
     def _delete_wallet(self, b):
         if b:
             basename = self.wallet.basename()
-            self.protected(_("Enter your PIN code to confirm deletion of {}").format(basename), self.__delete_wallet, ())
+            self.protected(_("Are you sure you want to delete wallet {}?").format(basename),
+                           self.__delete_wallet, ())
 
     def __delete_wallet(self, pw):
         wallet_path = self.get_wallet_path()
@@ -1223,7 +1237,7 @@ class ElectrumWindow(App):
         self.load_wallet_by_name(new_path)
 
     def show_seed(self, label):
-        self.protected(_("Enter PIN code to display your seed"), self._show_seed, (label,))
+        self.protected(_("Display your seed?"), self._show_seed, (label,))
 
     def _show_seed(self, label, password):
         if self.wallet.has_password() and password is None:
@@ -1319,7 +1333,7 @@ class ElectrumWindow(App):
             except InvalidPassword:
                 self.show_error("Invalid PIN")
                 return
-        self.protected(_("Enter your PIN code in order to decrypt your private key"), show_private_key, (addr, pk_label))
+        self.protected(_("Decrypt your private key?"), show_private_key, (addr, pk_label))
 
     def import_channel_backup(self, encrypted):
         d = Question(_('Import Channel Backup?'), lambda b: self._import_channel_backup(b, encrypted))
