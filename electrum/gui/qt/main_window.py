@@ -58,8 +58,7 @@ from electrum.util import (format_time, format_satoshis, format_fee_satoshis,
                            format_satoshis_plain,
                            UserCancelled, profiler,
                            export_meta, import_meta, bh2u, bfh, InvalidPassword,
-                           decimal_point_to_base_unit_name,
-                           UnknownBaseUnit, DECIMAL_POINT_DEFAULT, UserFacingException,
+                           UserFacingException,
                            get_new_wallet_name, send_exception_to_crash_reporter,
                            InvalidBitcoinURI, maybe_extract_bolt11_invoice, NotEnoughFunds,
                            NoDynamicFeeEstimates, MultipleSpendMaxTxOutputs)
@@ -84,7 +83,7 @@ from .amountedit import AmountEdit, BTCAmountEdit, FreezableLineEdit, FeerateEdi
 from .qrcodewidget import QRCodeWidget, QRDialog
 from .qrtextedit import ShowQRTextEdit, ScanQRTextEdit
 from .transaction_dialog import show_transaction
-from .fee_slider import FeeSlider
+from .fee_slider import FeeSlider, FeeComboBox
 from .util import (read_QIcon, ColorScheme, text_dialog, icon_path, WaitingDialog,
                    WindowModalDialog, ChoicesLayout, HelpLabel, Buttons,
                    OkButton, InfoButton, WWLabel, TaskThread, CancelButton,
@@ -192,12 +191,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
         self.create_status_bar()
         self.need_update = threading.Event()
-        self.decimal_point = config.get('decimal_point', DECIMAL_POINT_DEFAULT)
-        try:
-            decimal_point_to_base_unit_name(self.decimal_point)
-        except UnknownBaseUnit:
-            self.decimal_point = DECIMAL_POINT_DEFAULT
-        self.num_zeros = int(config.get('num_zeros', 0))
 
         self.completions = QStringListModel()
 
@@ -269,7 +262,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                          'on_history', 'channel', 'channels_updated',
                          'payment_failed', 'payment_succeeded',
                          'invoice_status', 'request_status', 'ln_gossip_sync_progress',
-                         'cert_mismatch']
+                         'cert_mismatch', 'gossip_db_loaded']
             # To avoid leaking references to "self" that prevent the
             # window from being GC-ed when closed, callbacks should be
             # methods of this class only, and specifically not be
@@ -418,6 +411,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             self.on_fx_quotes()
         elif event == 'on_history':
             self.on_fx_history()
+        elif event == 'gossip_db_loaded':
+            self.channels_list.gossip_db_loaded.emit(*args)
         elif event == 'channels_updated':
             self.channels_list.update_rows.emit(*args)
         elif event == 'channel':
@@ -859,24 +854,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.notify_transactions()
 
     def format_amount(self, x, is_diff=False, whitespaces=False):
-        return format_satoshis(x, self.num_zeros, self.decimal_point, is_diff=is_diff, whitespaces=whitespaces)
+        return self.config.format_amount(x, is_diff=is_diff, whitespaces=whitespaces)
 
     def format_amount_and_units(self, amount):
-        text = self.format_amount(amount) + ' '+ self.base_unit()
+        text = self.config.format_amount_and_units(amount)
         x = self.fx.format_amount_and_units(amount) if self.fx else None
         if text and x:
             text += ' (%s)'%x
         return text
 
     def format_fee_rate(self, fee_rate):
-        # fee_rate is in sat/kB
-        return format_fee_satoshis(fee_rate/1000, num_zeros=self.num_zeros) + ' sat/byte'
+        return self.config.format_fee_rate(fee_rate)
 
     def get_decimal_point(self):
-        return self.decimal_point
+        return self.config.get_decimal_point()
 
     def base_unit(self):
-        return decimal_point_to_base_unit_name(self.decimal_point)
+        return self.config.get_base_unit()
 
     def connect_fields(self, window, btc_e, fiat_e, fee_e):
 
@@ -1086,6 +1080,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         buttons.addWidget(self.clear_invoice_button)
         buttons.addWidget(self.create_invoice_button)
         if self.wallet.has_lightning():
+            self.create_invoice_button.setText(_('On-chain'))
             self.create_lightning_invoice_button = QPushButton(_('Lightning'))
             self.create_lightning_invoice_button.setToolTip('Create lightning request')
             self.create_lightning_invoice_button.setIcon(read_QIcon("lightning.png"))
@@ -1195,6 +1190,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         # clear request fields
         self.receive_amount_e.setText('')
         self.receive_message_e.setText('')
+        # copy to clipboard
+        r = self.wallet.get_request(key)
+        content = r.get('invoice', '') if is_lightning else r.get('address', '')
+        title = _('Invoice') if is_lightning else _('Address')
+        self.do_copy(content, title=title)
 
     def create_bitcoin_request(self, amount, message, expiration):
         addr = self.wallet.get_unused_address()
@@ -1470,7 +1470,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
         return False  # no errors
 
-    def pay_lightning_invoice(self, invoice, amount_sat=None):
+    def pay_lightning_invoice(self, invoice: str, amount_sat: int):
+        msg = _("Pay lightning invoice?") + '\n\n' + _("This will send {}?").format(self.format_amount_and_units(amount_sat))
+        if not self.question(msg):
+            return
         attempts = LN_NUM_PAYMENT_ATTEMPTS
         def task():
             self.wallet.lnworker.pay(invoice, amount_sat, attempts=attempts)
@@ -1549,7 +1552,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
     def do_pay_invoice(self, invoice):
         if invoice['type'] == PR_TYPE_LN:
-            self.pay_lightning_invoice(invoice['invoice'], amount_sat=invoice['amount'])
+            self.pay_lightning_invoice(invoice['invoice'], invoice['amount'])
         elif invoice['type'] == PR_TYPE_ONCHAIN:
             outputs = invoice['outputs']
             self.pay_onchain_dialog(self.get_coins(), outputs)
@@ -3049,8 +3052,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             fee = get_child_fee_from_total_feerate(fee_rate)
             fee_e.setAmount(fee)
         fee_slider = FeeSlider(self, self.config, on_rate)
+        fee_combo = FeeComboBox(fee_slider)
         fee_slider.update()
         grid.addWidget(fee_slider, 4, 1)
+        grid.addWidget(fee_combo, 4, 2)
         grid.addWidget(QLabel(_('Total fee') + ':'), 5, 0)
         grid.addWidget(combined_fee, 5, 1)
         grid.addWidget(QLabel(_('Total feerate') + ':'), 6, 0)
@@ -3082,24 +3087,32 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         d = WindowModalDialog(self, _('Bump Fee'))
         vbox = QVBoxLayout(d)
         vbox.addWidget(WWLabel(_("Increase your transaction's fee to improve its position in mempool.")))
-        vbox.addWidget(QLabel(_('Current Fee') + ': %s'% self.format_amount(fee) + ' ' + self.base_unit()))
-        vbox.addWidget(QLabel(_('Current Fee rate') + ': %s' % self.format_fee_rate(1000 * old_fee_rate)))
-        vbox.addWidget(QLabel(_('New Fee rate') + ':'))
 
+        grid = QGridLayout()
+        grid.addWidget(QLabel(_('Current Fee') + ':'), 0, 0)
+        grid.addWidget(QLabel(self.format_amount(fee) + ' ' + self.base_unit()), 0, 1)
+        grid.addWidget(QLabel(_('Current Fee rate') + ':'), 1, 0)
+        grid.addWidget(QLabel(self.format_fee_rate(1000 * old_fee_rate)), 1, 1)
+
+        grid.addWidget(QLabel(_('New Fee rate') + ':'), 2, 0)
         def on_textedit_rate():
             fee_slider.deactivate()
         feerate_e = FeerateEdit(lambda: 0)
         feerate_e.setAmount(max(old_fee_rate * 1.5, old_fee_rate + 1))
         feerate_e.textEdited.connect(on_textedit_rate)
-        vbox.addWidget(feerate_e)
+        grid.addWidget(feerate_e, 2, 1)
 
         def on_slider_rate(dyn, pos, fee_rate):
             fee_slider.activate()
             if fee_rate is not None:
                 feerate_e.setAmount(fee_rate / 1000)
         fee_slider = FeeSlider(self, self.config, on_slider_rate)
+        fee_combo = FeeComboBox(fee_slider)
         fee_slider.deactivate()
-        vbox.addWidget(fee_slider)
+        grid.addWidget(fee_slider, 3, 1)
+        grid.addWidget(fee_combo, 3, 2)
+
+        vbox.addLayout(grid)
         cb = QCheckBox(_('Final'))
         vbox.addWidget(cb)
         vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
