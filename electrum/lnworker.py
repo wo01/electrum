@@ -10,6 +10,7 @@ import time
 from typing import Optional, Sequence, Tuple, List, Dict, TYPE_CHECKING, NamedTuple, Union, Mapping
 import threading
 import socket
+import aiohttp
 import json
 from datetime import datetime, timezone
 from functools import partial
@@ -24,8 +25,8 @@ from aiorpcx import run_in_thread
 from . import constants, util
 from . import keystore
 from .util import profiler
-from .util import PR_UNPAID, PR_EXPIRED, PR_PAID, PR_INFLIGHT, PR_FAILED, PR_ROUTING
-from .util import PR_TYPE_LN, NetworkRetryManager
+from .invoices import PR_TYPE_LN, PR_UNPAID, PR_EXPIRED, PR_PAID, PR_INFLIGHT, PR_FAILED, PR_ROUTING, LNInvoice, LN_EXPIRY_NEVER
+from .util import NetworkRetryManager, JsonRPCClient
 from .lnutil import LN_MAX_FUNDING_SAT
 from .keystore import BIP32_KeyStore
 from .bitcoin import COIN
@@ -525,12 +526,6 @@ class LNWallet(LNWorker):
     @ignore_exceptions
     @log_exceptions
     async def sync_with_remote_watchtower(self):
-        import aiohttp
-        from jsonrpcclient.clients.aiohttp_client import AiohttpClient
-        class myAiohttpClient(AiohttpClient):
-            async def request(self, *args, **kwargs):
-                r = await super().request(*args, **kwargs)
-                return r.data.result
         while True:
             await asyncio.sleep(5)
             watchtower_url = self.config.get('watchtower_url')
@@ -538,7 +533,9 @@ class LNWallet(LNWorker):
                 continue
             try:
                 async with make_aiohttp_session(proxy=self.network.proxy) as session:
-                    watchtower = myAiohttpClient(session, watchtower_url)
+                    watchtower = JsonRPCClient(session, watchtower_url)
+                    watchtower.add_method('get_ctn')
+                    watchtower.add_method('add_sweep_tx')
                     for chan in self.channels.values():
                         await self.sync_channel_with_watchtower(chan, watchtower)
             except aiohttp.client_exceptions.ClientConnectorError:
@@ -1086,11 +1083,7 @@ class LNWallet(LNWorker):
         info = PaymentInfo(payment_hash, amount_sat, RECEIVED, PR_UNPAID)
         amount_btc = amount_sat/Decimal(COIN) if amount_sat else None
         if expiry == 0:
-            # hack: BOLT-11 is not really clear on what an expiry of 0 means.
-            # It probably interprets it as 0 seconds, so already expired...
-            # Our higher level invoices code however uses 0 for "never".
-            # Hence set some high expiration here
-            expiry = 100 * 365 * 24 * 60 * 60  # 100 years
+            expiry = LN_EXPIRY_NEVER
         lnaddr = LnAddr(paymenthash=payment_hash,
                         amount=amount_btc,
                         tags=[('d', message),
@@ -1102,15 +1095,7 @@ class LNWallet(LNWorker):
                         payment_secret=derive_payment_secret_from_payment_preimage(payment_preimage))
         invoice = lnencode(lnaddr, self.node_keypair.privkey)
         key = bh2u(lnaddr.paymenthash)
-        req = {
-            'type': PR_TYPE_LN,
-            'amount': amount_sat,
-            'time': lnaddr.date,
-            'exp': expiry,
-            'message': message,
-            'rhash': key,
-            'invoice': invoice
-        }
+        req = LNInvoice.from_bech32(invoice)
         self.save_preimage(payment_hash, payment_preimage)
         self.save_payment_info(info)
         self.wallet.add_payment_request(req)
@@ -1145,7 +1130,8 @@ class LNWallet(LNWorker):
         info = self.get_payment_info(payment_hash)
         return info.status if info else PR_UNPAID
 
-    def get_invoice_status(self, key):
+    def get_invoice_status(self, invoice):
+        key = invoice.rhash
         log = self.logs[key]
         if key in self.is_routing:
             return PR_ROUTING
@@ -1285,6 +1271,12 @@ class LNWallet(LNWorker):
             return Decimal(max(chan.available_to_spend(REMOTE) if chan.is_open() else 0
                                for chan in self.channels.values()))/1000 if self.channels else 0
 
+    def can_pay_invoice(self, invoice):
+        return invoice.amount <= self.num_sats_can_send()
+
+    def can_receive_invoice(self, invoice):
+        return invoice.amount <= self.num_sats_can_receive()
+
     async def close_channel(self, chan_id):
         chan = self._channels[chan_id]
         peer = self._peers[chan.node_id]
@@ -1365,6 +1357,8 @@ class LNWallet(LNWorker):
 
     def create_channel_backup(self, channel_id):
         chan = self._channels[channel_id]
+        # do not backup old-style channels
+        assert chan.is_static_remotekey_enabled()
         peer_addresses = list(chan.get_peer_addresses())
         peer_addr = peer_addresses[0]
         return ChannelBackupStorage(

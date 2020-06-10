@@ -43,6 +43,7 @@ from typing import NamedTuple, Optional
 import ssl
 import ipaddress
 import random
+import attr
 
 import aiohttp
 from aiohttp_socks import ProxyConnector, ProxyType
@@ -76,66 +77,6 @@ base_units_inverse = inv_dict(base_units)
 base_units_list = ['KOTO', 'mKOTO', 'uKOTO', 'sat']  # list(dict) does not guarantee order
 
 DECIMAL_POINT_DEFAULT = 8  # KOTO
-
-# types of payment requests
-PR_TYPE_ONCHAIN = 0
-PR_TYPE_LN = 2
-
-# status of payment requests
-PR_UNPAID   = 0
-PR_EXPIRED  = 1
-PR_UNKNOWN  = 2     # sent but not propagated
-PR_PAID     = 3     # send and propagated
-PR_INFLIGHT = 4     # unconfirmed
-PR_FAILED   = 5
-PR_ROUTING  = 6
-
-pr_color = {
-    PR_UNPAID:   (.7, .7, .7, 1),
-    PR_PAID:     (.2, .9, .2, 1),
-    PR_UNKNOWN:  (.7, .7, .7, 1),
-    PR_EXPIRED:  (.9, .2, .2, 1),
-    PR_INFLIGHT: (.9, .6, .3, 1),
-    PR_FAILED:   (.9, .2, .2, 1),
-    PR_ROUTING: (.9, .6, .3, 1),
-}
-
-pr_tooltips = {
-    PR_UNPAID:_('Pending'),
-    PR_PAID:_('Paid'),
-    PR_UNKNOWN:_('Unknown'),
-    PR_EXPIRED:_('Expired'),
-    PR_INFLIGHT:_('In progress'),
-    PR_FAILED:_('Failed'),
-    PR_ROUTING: _('Computing route...'),
-}
-
-PR_DEFAULT_EXPIRATION_WHEN_CREATING = 24*60*60  # 1 day
-pr_expiration_values = {
-    0: _('Never'),
-    10*60: _('10 minutes'),
-    60*60: _('1 hour'),
-    24*60*60: _('1 day'),
-    7*24*60*60: _('1 week'),
-}
-assert PR_DEFAULT_EXPIRATION_WHEN_CREATING in pr_expiration_values
-
-
-def get_request_status(req):
-    status = req['status']
-    exp = req.get('exp', 0) or 0
-    if req.get('type') == PR_TYPE_LN and exp == 0:
-        status = PR_EXPIRED  # for BOLT-11 invoices, exp==0 means 0 seconds
-    if req['status'] == PR_UNPAID and exp > 0 and req['time'] + req['exp'] < time.time():
-        status = PR_EXPIRED
-    status_str = pr_tooltips[status]
-    if status == PR_UNPAID:
-        if exp > 0:
-            expiration = exp + req['time']
-            status_str = _('Expires') + ' ' + age(expiration, include_seconds=True)
-        else:
-            status_str = _('Pending')
-    return status, status_str
 
 
 class UnknownBaseUnit(Exception): pass
@@ -973,11 +914,10 @@ def versiontuple(v):
     return tuple(map(int, (v.split("."))))
 
 
-def import_meta(path, validater, load_meta):
+def read_json_file(path):
     try:
         with open(path, 'r', encoding='utf-8') as f:
-            d = validater(json.loads(f.read()))
-        load_meta(d)
+            data = json.loads(f.read())
     #backwards compatibility for JSONDecodeError
     except ValueError:
         _logger.exception('')
@@ -985,12 +925,12 @@ def import_meta(path, validater, load_meta):
     except BaseException as e:
         _logger.exception('')
         raise FileImportFailed(e)
+    return data
 
-
-def export_meta(meta, fileName):
+def write_json_file(path, data):
     try:
-        with open(fileName, 'w+', encoding='utf-8') as f:
-            json.dump(meta, f, indent=4, sort_keys=True)
+        with open(path, 'w+', encoding='utf-8') as f:
+            json.dump(data, f, indent=4, sort_keys=True, cls=MyEncoder)
     except (IOError, os.error) as e:
         _logger.exception('')
         raise FileExportFailed(e)
@@ -1390,3 +1330,33 @@ class MySocksProxy(aiorpcx.SOCKSProxy):
         else:
             raise NotImplementedError  # http proxy not available with aiorpcx
         return ret
+
+
+class JsonRPCClient:
+
+    def __init__(self, session: aiohttp.ClientSession, url: str):
+        self.session = session
+        self.url = url
+        self._id = 0
+
+    async def request(self, endpoint, *args):
+        self._id += 1
+        data = ('{"jsonrpc": "2.0", "id":"%d", "method": "%s", "params": %s }'
+                % (self._id, endpoint, json.dumps(args)))
+        async with self.session.post(self.url, data=data) as resp:
+            if resp.status == 200:
+                r = await resp.json()
+                result = r.get('result')
+                error = r.get('error')
+                if error:
+                    return 'Error: ' + str(error)
+                else:
+                    return result
+            else:
+                text = await resp.text()
+                return 'Error: ' + str(text)
+
+    def add_method(self, endpoint):
+        async def coro(*args):
+            return await self.request(endpoint, *args)
+        setattr(self, endpoint, coro)

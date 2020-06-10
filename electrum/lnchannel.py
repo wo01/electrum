@@ -35,7 +35,8 @@ import attr
 
 from . import ecc
 from . import constants, util
-from .util import bfh, bh2u, chunks, TxMinedInfo, PR_PAID
+from .util import bfh, bh2u, chunks, TxMinedInfo
+from .invoices import PR_PAID
 from .bitcoin import redeem_script_to_address
 from .crypto import sha256, sha256d
 from .transaction import Transaction, PartialTransaction, TxInput
@@ -459,6 +460,9 @@ class ChannelBackup(AbstractChannel):
 
     def is_frozen_for_receiving(self) -> bool:
         return False
+
+    def is_static_remotekey_enabled(self) -> bool:
+        return True
 
 
 class Channel(AbstractChannel):
