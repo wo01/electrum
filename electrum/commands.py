@@ -60,6 +60,7 @@ from .plugin import run_hook
 from .version import ELECTRUM_VERSION
 from .simple_config import SimpleConfig
 from .invoices import LNInvoice
+from . import submarine_swaps
 
 
 if TYPE_CHECKING:
@@ -78,6 +79,8 @@ def satoshis(amount):
     # satoshi conversion must not be performed by the parser
     return int(COIN*Decimal(amount)) if amount not in ['!', None] else amount
 
+def format_satoshis(x):
+    return str(Decimal(x)/COIN) if x is not None else None
 
 def json_normalize(x):
     # note: The return value of commands, when going through the JSON-RPC interface,
@@ -987,23 +990,14 @@ class Commands:
         return chan.funding_outpoint.to_str()
 
     @command('')
-    async def decode_invoice(self, invoice):
-        from .lnaddr import lndecode
-        lnaddr = lndecode(invoice)
-        return {
-            'pubkey': lnaddr.pubkey.serialize().hex(),
-            'amount_BTC': lnaddr.amount,
-            'rhash': lnaddr.paymenthash.hex(),
-            'description': lnaddr.get_description(),
-            'exp': lnaddr.get_expiry(),
-            'time': lnaddr.date,
-            #'tags': str(lnaddr.tags),
-        }
+    async def decode_invoice(self, invoice: str):
+        invoice = LNInvoice.from_bech32(invoice)
+        return invoice.to_debug_json()
 
     @command('wn')
     async def lnpay(self, invoice, attempts=1, timeout=30, wallet: Abstract_Wallet = None):
         lnworker = wallet.lnworker
-        lnaddr = lnworker._check_invoice(invoice, None)
+        lnaddr = lnworker._check_invoice(invoice)
         payment_hash = lnaddr.paymenthash
         wallet.save_invoice(LNInvoice.from_bech32(invoice))
         success, log = await lnworker._pay(invoice, attempts=attempts)
@@ -1023,7 +1017,6 @@ class Commands:
     async def list_channels(self, wallet: Abstract_Wallet = None):
         # we output the funding_outpoint instead of the channel_id because lnd uses channel_point (funding outpoint) to identify channels
         from .lnutil import LOCAL, REMOTE, format_short_channel_id
-        encoder = util.MyEncoder()
         l = list(wallet.lnworker.channels.items())
         return [
             {
@@ -1100,6 +1093,58 @@ class Commands:
         """ return the local watchtower's ctn of channel. used in regtests """
         return await self.network.local_watchtower.sweepstore.get_ctn(channel_point, None)
 
+    @command('wnp')
+    async def normal_swap(self, onchain_amount, lightning_amount, password=None, wallet: Abstract_Wallet = None):
+        """
+        Normal submarine swap: send on-chain BTC, receive on Lightning
+        Note that your funds will be locked for 24h if you do not have enough incoming capacity.
+        """
+        sm = wallet.lnworker.swap_manager
+        if lightning_amount == 'dryrun':
+            await sm.get_pairs()
+            onchain_amount_sat = satoshis(onchain_amount)
+            lightning_amount_sat = sm.get_recv_amount(onchain_amount_sat, is_reverse=False)
+            txid = None
+        elif onchain_amount == 'dryrun':
+            await sm.get_pairs()
+            lightning_amount_sat = satoshis(lightning_amount)
+            onchain_amount_sat = sm.get_send_amount(lightning_amount_sat, is_reverse=False)
+            txid = None
+        else:
+            lightning_amount_sat = satoshis(lightning_amount)
+            onchain_amount_sat = satoshis(onchain_amount)
+            txid = await wallet.lnworker.swap_manager.normal_swap(lightning_amount_sat, onchain_amount_sat, password)
+        return {
+            'txid': txid,
+            'lightning_amount': format_satoshis(lightning_amount_sat),
+            'onchain_amount': format_satoshis(onchain_amount_sat),
+        }
+
+    @command('wn')
+    async def reverse_swap(self, lightning_amount, onchain_amount, wallet: Abstract_Wallet = None):
+        """Reverse submarine swap: send on Lightning, receive on-chain
+        """
+        sm = wallet.lnworker.swap_manager
+        if onchain_amount == 'dryrun':
+            await sm.get_pairs()
+            lightning_amount_sat = satoshis(lightning_amount)
+            onchain_amount_sat = sm.get_recv_amount(lightning_amount_sat, is_reverse=True)
+            success = None
+        elif lightning_amount == 'dryrun':
+            await sm.get_pairs()
+            onchain_amount_sat = satoshis(onchain_amount)
+            lightning_amount_sat = sm.get_send_amount(onchain_amount_sat, is_reverse=True)
+            success = None
+        else:
+            lightning_amount_sat = satoshis(lightning_amount)
+            onchain_amount_sat = satoshis(onchain_amount)
+            success = await wallet.lnworker.swap_manager.reverse_swap(lightning_amount_sat, onchain_amount_sat)
+        return {
+            'success': success,
+            'lightning_amount': format_satoshis(lightning_amount_sat),
+            'onchain_amount': format_satoshis(onchain_amount_sat),
+        }
+
 
 def eval_bool(x: str) -> bool:
     if x == 'false': return False
@@ -1126,6 +1171,8 @@ param_descriptions = {
     'requested_amount': 'Requested amount (in KOTO).',
     'outputs': 'list of ["address", amount]',
     'redeem_script': 'redeem script (hexadecimal)',
+    'lightning_amount': "Amount sent or received in a submarine swap. Set it to 'dryrun' to receive a value",
+    'onchain_amount': "Amount sent or received in a submarine swap. Set it to 'dryrun' to receive a value",
 }
 
 command_options = {

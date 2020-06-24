@@ -24,7 +24,7 @@ import binascii
 import os, sys, re, json
 from collections import defaultdict, OrderedDict
 from typing import (NamedTuple, Union, TYPE_CHECKING, Tuple, Optional, Callable, Any,
-                    Sequence, Dict, Generic, TypeVar)
+                    Sequence, Dict, Generic, TypeVar, List, Iterable)
 from datetime import datetime
 import decimal
 from decimal import Decimal
@@ -177,6 +177,9 @@ class Satoshis(object):
     def __ne__(self, other):
         return not (self == other)
 
+    def __add__(self, other):
+        return Satoshis(self.value + other.value)
+
 
 # note: this is not a NamedTuple as then its json encoding cannot be customized
 class Fiat(object):
@@ -215,6 +218,10 @@ class Fiat(object):
 
     def __ne__(self, other):
         return not (self == other)
+
+    def __add__(self, other):
+        assert self.ccy == other.ccy
+        return Fiat(self.value + other.value, self.ccy)
 
 
 class MyEncoder(json.JSONEncoder):
@@ -582,7 +589,7 @@ def chunks(items, size: int):
         yield items[i: i + size]
 
 
-def format_satoshis_plain(x, decimal_point = 8) -> str:
+def format_satoshis_plain(x, *, decimal_point=8) -> str:
     """Display a satoshi amount scaled.  Always uses a '.' as a decimal
     point and has no thousands separator"""
     if x == '!':
@@ -594,7 +601,15 @@ def format_satoshis_plain(x, decimal_point = 8) -> str:
 DECIMAL_POINT = localeconv()['decimal_point']  # type: str
 
 
-def format_satoshis(x, num_zeros=0, decimal_point=8, precision=None, is_diff=False, whitespaces=False) -> str:
+def format_satoshis(
+        x,  # in satoshis
+        *,
+        num_zeros=0,
+        decimal_point=8,
+        precision=None,
+        is_diff=False,
+        whitespaces=False,
+) -> str:
     if x is None:
         return 'unknown'
     if x == '!':
@@ -740,6 +755,7 @@ def block_explorer_URL(config: 'SimpleConfig', kind: str, item: str) -> Optional
 class InvalidBitcoinURI(Exception): pass
 
 
+# TODO rename to parse_bip21_uri or similar
 def parse_URI(uri: str, on_pr: Callable = None, *, loop=None) -> dict:
     """Raises InvalidBitcoinURI on malformed URI."""
     from . import bitcoin
@@ -1360,3 +1376,12 @@ class JsonRPCClient:
         async def coro(*args):
             return await self.request(endpoint, *args)
         setattr(self, endpoint, coro)
+
+
+T = TypeVar('T')
+
+def random_shuffled_copy(x: Iterable[T]) -> List[T]:
+    """Returns a shuffled copy of the input."""
+    x_copy = list(x)  # copy
+    random.shuffle(x_copy)  # shuffle in-place
+    return x_copy

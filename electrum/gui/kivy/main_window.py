@@ -254,11 +254,12 @@ class ElectrumWindow(App):
         if self.invoice_popup and self.invoice_popup.key == key:
             self.invoice_popup.update_status()
 
-    def on_payment_succeeded(self, event, key):
-        self.show_info(_('Payment was sent'))
+    def on_payment_succeeded(self, event, wallet, key):
+        description = self.wallet.get_label(key)
+        self.show_info(_('Payment succeeded') + '\n\n' + description)
         self._trigger_update_history()
 
-    def on_payment_failed(self, event, key, reason):
+    def on_payment_failed(self, event, wallet, key, reason):
         self.show_info(_('Payment failed') + '\n\n' + reason)
 
     def _get_bu(self):
@@ -297,7 +298,7 @@ class ElectrumWindow(App):
         if rate.is_nan():
             return ''
         satoshis = int(pow(10,8) * Decimal(fiat_amount) / Decimal(rate))
-        return format_satoshis_plain(satoshis, self.decimal_point())
+        return format_satoshis_plain(satoshis, decimal_point=self.decimal_point())
 
     def get_amount(self, amount_str):
         a, u = amount_str.split()
@@ -419,7 +420,7 @@ class ElectrumWindow(App):
             self.set_URI(data)
             return
         if data.startswith('channel_backup:'):
-            self.import_channel_backup(data[15:])
+            self.import_channel_backup(data)
             return
         bolt11_invoice = maybe_extract_bolt11_invoice(data)
         if bolt11_invoice is not None:
@@ -467,7 +468,7 @@ class ElectrumWindow(App):
         self.invoice_popup = InvoiceDialog('Invoice', data, key)
         self.invoice_popup.open()
 
-    def qr_dialog(self, title, data, show_text=False, text_for_clipboard=None):
+    def qr_dialog(self, title, data, show_text=False, text_for_clipboard=None, help_text=None):
         from .uix.dialogs.qr_dialog import QRDialog
         def on_qr_failure():
             popup.dismiss()
@@ -476,8 +477,11 @@ class ElectrumWindow(App):
                 msg += '\n' + _('Text copied to clipboard.')
                 self._clipboard.copy(text_for_clipboard)
             Clock.schedule_once(lambda dt: self.show_info(msg))
-        popup = QRDialog(title, data, show_text, failure_cb=on_qr_failure,
-                         text_for_clipboard=text_for_clipboard)
+        popup = QRDialog(
+            title, data, show_text,
+            failure_cb=on_qr_failure,
+            text_for_clipboard=text_for_clipboard,
+            help_text=help_text)
         popup.open()
 
     def scan_qr(self, on_complete):
@@ -724,7 +728,7 @@ class ElectrumWindow(App):
             self._channels_dialog = LightningChannelsDialog(self)
         self._channels_dialog.open()
 
-    def on_channel(self, evt, chan):
+    def on_channel(self, evt, wallet, chan):
         if self._channels_dialog:
             Clock.schedule_once(lambda dt: self._channels_dialog.update())
 
@@ -910,17 +914,23 @@ class ElectrumWindow(App):
         amount = tx.output_value()
         __, x_fee_amount = run_hook('get_tx_extra_fee', self.wallet, tx) or (None, 0)
         amount_after_all_fees = amount - x_fee_amount
-        return format_satoshis_plain(amount_after_all_fees, self.decimal_point())
+        return format_satoshis_plain(amount_after_all_fees, decimal_point=self.decimal_point())
 
     def format_amount(self, x, is_diff=False, whitespaces=False):
-        return format_satoshis(x, 0, self.decimal_point(), is_diff=is_diff, whitespaces=whitespaces)
+        return format_satoshis(
+            x,
+            num_zeros=0,
+            decimal_point=self.decimal_point(),
+            is_diff=is_diff,
+            whitespaces=whitespaces,
+        )
 
     def format_amount_and_units(self, x) -> str:
         if x is None:
             return 'none'
         if x == '!':
             return 'max'
-        return format_satoshis_plain(x, self.decimal_point()) + ' ' + self.base_unit
+        return format_satoshis_plain(x, decimal_point=self.decimal_point()) + ' ' + self.base_unit
 
     def format_fee_rate(self, fee_rate):
         # fee_rate is in sat/kB
