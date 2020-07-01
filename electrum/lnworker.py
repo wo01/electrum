@@ -7,7 +7,7 @@ import os
 from decimal import Decimal
 import random
 import time
-from typing import Optional, Sequence, Tuple, List, Dict, TYPE_CHECKING, NamedTuple, Union, Mapping
+from typing import Optional, Sequence, Tuple, List, Dict, TYPE_CHECKING, NamedTuple, Union, Mapping, Any
 import threading
 import socket
 import aiohttp
@@ -17,6 +17,7 @@ from functools import partial
 from collections import defaultdict
 import concurrent
 from concurrent import futures
+import urllib.parse
 
 import dns.resolver
 import dns.exception
@@ -36,7 +37,7 @@ from .bip32 import BIP32Node
 from .util import bh2u, bfh, InvoiceError, resolve_dns_srv, is_ip_address, log_exceptions
 from .util import ignore_exceptions, make_aiohttp_session, SilentTaskGroup
 from .util import timestamp_to_datetime, random_shuffled_copy
-from .util import MyEncoder
+from .util import MyEncoder, is_private_netaddress
 from .logging import Logger
 from .lntransport import LNTransport, LNResponderTransport
 from .lnpeer import Peer, LN_P2P_NETWORK_TIMEOUT
@@ -411,7 +412,7 @@ class LNWorker(Logger, NetworkRetryManager[LNPeerAddr]):
                 addrs = self.channel_db.get_node_addresses(node_id)
                 if not addrs:
                     raise ConnStringFormatError(_('Don\'t know any addresses for node:') + ' ' + bh2u(node_id))
-                host, port, timestamp = self.choose_preferred_address(addrs)
+                host, port, timestamp = self.choose_preferred_address(list(addrs))
             port = int(port)
             # Try DNS-resolving the host (if needed). This is simply so that
             # the caller gets a nice exception if it cannot be resolved.
@@ -531,10 +532,17 @@ class LNWallet(LNWorker):
     @log_exceptions
     async def sync_with_remote_watchtower(self):
         while True:
+            # periodically poll if the user updated 'watchtower_url'
             await asyncio.sleep(5)
             watchtower_url = self.config.get('watchtower_url')
             if not watchtower_url:
                 continue
+            parsed_url = urllib.parse.urlparse(watchtower_url)
+            if not (parsed_url.scheme == 'https' or is_private_netaddress(parsed_url.hostname)):
+                self.logger.warning(f"got watchtower URL for remote tower but we won't use it! "
+                                    f"can only use HTTPS (except if private IP): not using {watchtower_url!r}")
+                continue
+            # try to sync with the remote watchtower
             try:
                 async with make_aiohttp_session(proxy=self.network.proxy) as session:
                     watchtower = JsonRPCClient(session, watchtower_url)
@@ -703,7 +711,7 @@ class LNWallet(LNWorker):
                 'amount_msat': 0,
                 #'amount_msat': amount_msat, # must not be added
                 'type': 'swap',
-                'label': label
+                'label': self.wallet.get_label(txid) or label,
             }
         return out
 
@@ -960,21 +968,10 @@ class LNWallet(LNWorker):
             offset = failure_codes[code]
             channel_update_len = int.from_bytes(data[offset:offset+2], byteorder="big")
             channel_update_as_received = data[offset+2: offset+2+channel_update_len]
-            channel_update_typed = (258).to_bytes(length=2, byteorder="big") + channel_update_as_received
-            # note: some nodes put channel updates in error msgs with the leading msg_type already there.
-            #       we try decoding both ways here.
-            try:
-                message_type, payload = decode_msg(channel_update_typed)
-                if not payload['chain_hash'] != constants.net.rev_genesis_bytes(): raise Exception()
-                payload['raw'] = channel_update_typed
-            except:  # FIXME: too broad
-                try:
-                    message_type, payload = decode_msg(channel_update_as_received)
-                    if not payload['chain_hash'] != constants.net.rev_genesis_bytes(): raise Exception()
-                    payload['raw'] = channel_update_as_received
-                except:
-                    self.logger.info(f'could not decode channel_update for failed htlc: {channel_update_as_received.hex()}')
-                    return True
+            payload = self._decode_channel_update_msg(channel_update_as_received)
+            if payload is None:
+                self.logger.info(f'could not decode channel_update for failed htlc: {channel_update_as_received.hex()}')
+                return True
             r = self.channel_db.add_channel_update(payload)
             blacklist = False
             short_channel_id = ShortChannelID(payload['short_channel_id'])
@@ -996,6 +993,26 @@ class LNWallet(LNWorker):
         else:
             blacklist = True
         return blacklist
+
+    @classmethod
+    def _decode_channel_update_msg(cls, chan_upd_msg: bytes) -> Optional[Dict[str, Any]]:
+        channel_update_as_received = chan_upd_msg
+        channel_update_typed = (258).to_bytes(length=2, byteorder="big") + channel_update_as_received
+        # note: some nodes put channel updates in error msgs with the leading msg_type already there.
+        #       we try decoding both ways here.
+        try:
+            message_type, payload = decode_msg(channel_update_typed)
+            if payload['chain_hash'] != constants.net.rev_genesis_bytes(): raise Exception()
+            payload['raw'] = channel_update_typed
+            return payload
+        except:  # FIXME: too broad
+            try:
+                message_type, payload = decode_msg(channel_update_as_received)
+                if payload['chain_hash'] != constants.net.rev_genesis_bytes(): raise Exception()
+                payload['raw'] = channel_update_as_received
+                return payload
+            except:
+                return None
 
     @staticmethod
     def _check_invoice(invoice: str, *, amount_msat: int = None) -> LnAddr:

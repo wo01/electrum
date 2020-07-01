@@ -372,6 +372,9 @@ class Commands:
                 raise Exception("missing prevout for txin")
             txin = PartialTxInput(prevout=prevout)
             txin._trusted_value_sats = int(txin_dict['value'])
+            nsequence = txin_dict.get('nsequence', None)
+            if nsequence is not None:
+                txin.nsequence = nsequence
             sec = txin_dict.get('privkey')
             if sec:
                 txin_type, privkey, compressed = bitcoin.deserialize_privkey(sec)
@@ -877,8 +880,8 @@ class Commands:
     @command('w')
     async def clear_requests(self, wallet: Abstract_Wallet = None):
         """Remove all payment requests"""
-        for k in list(wallet.receive_requests.keys()):
-            wallet.remove_payment_request(k)
+        wallet.clear_requests()
+        return True
 
     @command('w')
     async def clear_invoices(self, wallet: Abstract_Wallet = None):
