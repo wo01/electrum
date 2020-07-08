@@ -12,14 +12,14 @@ from . import ElectrumTestCase
 
 class TestVerifyHeader(ElectrumTestCase):
 
-    # Data for Koto block header #1056620.
-    valid_header = "0500000046b175f0bdab4d7c2c4cf501c9bb192d037d7b7dcefcf34a8684c19dca62b82c3c550621d820a798277b8ec063811d8b4d26f74868d9da61f4ff7c0da548f7f50678fc5d729a0e1d000030e72a9614689e6408a6c11985046866a02d4ee68e4def996b27d84c98675697df2f"
-    target = Blockchain.bits_to_target(0x1d0e9a72)
-    prev_hash = "2cb862ca9dc184864af3fcce7d7b7d032d19bbc901f54c2c7c4dabbdf075b146"
+    # Data for Koto block header #1334541.
+    valid_header = "05000000a8c37bcbf4aa6697e617391eb8fa9d740797db313fc1516f45ee6f93ead10999b82ce3068a1012c894b780057a750847f133bbb705a51ed7d77ac077553d6fa66e47fc5eb9a71f1d00002f8ead6b998975bb4415209950812cd41f881f9fef0b51bec0a3b0b1e822d5850524"
+    target = Blockchain.bits_to_target(0x1d1fa7b9)
+    prev_hash = "9909d1ea936fee456f51c13f31db9707749dfab81e3917e69766aaf4cb7bc3a8"
 
     def setUp(self):
         super().setUp()
-        self.header = deserialize_header(bfh(self.valid_header), 1056620)
+        self.header = deserialize_header(bfh(self.valid_header), 1334541)
 
     def test_valid_header(self):
         Blockchain.verify_header(self.header, self.prev_hash, self.target)
@@ -35,7 +35,7 @@ class TestVerifyHeader(ElectrumTestCase):
 
     def test_target_mismatch(self):
         with self.assertRaises(Exception):
-            other_target = Blockchain.bits_to_target(0x1d0eeeee)
+            other_target = Blockchain.bits_to_target(0x1d300000)
             Blockchain.verify_header(self.header, self.prev_hash, other_target)
 
     def test_insufficient_pow(self):
