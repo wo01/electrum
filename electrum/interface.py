@@ -592,8 +592,11 @@ class Interface(Logger):
         assert_non_negative_integer(res['count'])
         assert_non_negative_integer(res['max'])
         assert_hex_str(res['hex'])
-        if height < constants.net.SAPLING_HEIGHT:
+        if height // 2016 < constants.net.SAPLING_HEIGHT // 2016:
             if len(res['hex']) != HEADER_SIZE * 2 * res['count']:
+                raise RequestCorrupted('inconsistent chunk hex and count')
+        elif height < constants.net.SAPLING_HEIGHT:
+            if len(res['hex']) != 446208:
                 raise RequestCorrupted('inconsistent chunk hex and count')
         else:
             if len(res['hex']) != HEADER_SIZE_SAPLING * 2 * res['count']:
