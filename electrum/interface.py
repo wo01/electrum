@@ -52,7 +52,7 @@ from . import x509
 from . import pem
 from . import version
 from . import blockchain
-from .blockchain import Blockchain, HEADER_SIZE
+from .blockchain import Blockchain, HEADER_SIZE, HEADER_SIZE_SAPLING
 from . import constants
 from .i18n import _
 from .logging import Logger
@@ -592,8 +592,12 @@ class Interface(Logger):
         assert_non_negative_integer(res['count'])
         assert_non_negative_integer(res['max'])
         assert_hex_str(res['hex'])
-        if len(res['hex']) != HEADER_SIZE * 2 * res['count']:
-            raise RequestCorrupted('inconsistent chunk hex and count')
+        if height < constants.net.SAPLING_HEIGHT:
+            if len(res['hex']) != HEADER_SIZE * 2 * res['count']:
+                raise RequestCorrupted('inconsistent chunk hex and count')
+        else:
+            if len(res['hex']) != HEADER_SIZE_SAPLING * 2 * res['count']:
+                raise RequestCorrupted('inconsistent chunk hex and count')
         if res['count'] != size:
             raise RequestCorrupted(f"expected {size} headers but only got {res['count']}")
         conn = self.blockchain.connect_chunk(index, res['hex'])
