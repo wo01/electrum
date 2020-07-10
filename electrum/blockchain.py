@@ -173,7 +173,18 @@ _CHAINWORK_CACHE = {
 def init_headers_file_for_best_chain():
     b = get_best_chain()
     filename = b.path()
-    length = HEADER_SIZE * len(constants.net.CHECKPOINTS) * 2016
+    index_sapling = constants.net.SAPLING_HEIGHT // 2016  # index == 276
+    offset_sapling = constants.net.SAPLING_HEIGHT - index_sapling * 2016 # offset from index_sapling
+    cp = len(constants.net.CHECKPOINTS)
+    if cp <= index_sapling:
+        length = HEADER_SIZE * cp * 2016
+    elif cp == index_sapling + 1:
+        length = HEADER_SIZE * index_sapling * 2016
+        length += (HEADER_SIZE * offset_sapling) + (HEADER_SIZE_SAPLING * (2016 - offset_sapling))
+    else:
+        length = HEADER_SIZE * index_sapling * 2016
+        length += (HEADER_SIZE * offset_sapling) + (HEADER_SIZE_SAPLING * (2016 - offset_sapling))
+        length += HEADER_SIZE_SAPLING * (cp - index_sapling - 1) * 2016
     if not os.path.exists(filename) or os.path.getsize(filename) < length:
         with open(filename, 'wb') as f:
             if length > 0:
