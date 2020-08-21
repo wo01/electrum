@@ -469,10 +469,14 @@ class TrezorPlugin(HW_PluginBase):
         t.version = tx.version
         t.lock_time = tx.locktime
         t.inputs = self.tx_inputs(tx)
+        for i in t.inputs:
+            i.script_sig = b''
         t.bin_outputs = [
             TxOutputBinType(amount=o.value, script_pubkey=o.scriptpubkey)
             for o in tx.outputs()
         ]
         t.overwintered = tx.overwintered
         t.version_group_id = tx.versionGroupId
+        t.extra_data = tx._saplingraw
+        t.extra_data_len = len(tx._saplingraw)
         return t
