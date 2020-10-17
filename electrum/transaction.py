@@ -69,6 +69,8 @@ JOINSPLITS_HASH_PERSON = b'ZcashJSplitsHash'
 OVERWINTER_HASH_PERSON = b'ZcashSigHash\x19\x1b\xa8\x5b'
 SAPLING_HASH_PERSON = b'ZcashSigHash\xbb\x09\xb8\x76'
 BLOSSOM_HASH_PERSON = b'ZcashSigHash\x60\x0e\xb4\x2b'
+HEARTWOOD_HASH_PERSON = b'ZcashSigHash\x0b\x23\xb9\xf5'
+CANOPY_HASH_PERSON = b'ZcashSigHash\xa6\x75\xff\xe9'
 
 NO_SIGNATURE = 'ff'
 PARTIAL_TXN_HEADER_MAGIC = b'EPTF\xff'
