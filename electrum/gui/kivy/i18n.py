@@ -9,7 +9,12 @@ class _(str):
     def __new__(cls, s):
         if _.lang is None:
             _.switch_lang('en')
+        dic = [('Bitcoin', 'Koto'), ('bitcoin', 'koto'), ('mBTC/kB', 'mKOTO/kB'), ('ビットコイン', 'Koto')]
+        for b, m in dic:
+            s = s.replace(m, b)
         t = _.translate(s)
+        for b, m in dic:
+            t = t.replace(b, m)
         o = super(_, cls).__new__(cls, t)
         o.source_text = s
         return o
