@@ -11,7 +11,7 @@ from electrum import Transaction
 from electrum import SimpleConfig
 from electrum.address_synchronizer import TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_UNCONF_PARENT
 from electrum.wallet import sweep, Multisig_Wallet, Standard_Wallet, Imported_Wallet, restore_wallet_from_text, Abstract_Wallet
-from electrum.util import bfh, bh2u
+from electrum.util import bfh, bh2u, create_and_start_event_loop
 from electrum.transaction import TxOutput, Transaction, PartialTransaction, PartialTxOutput, PartialTxInput, tx_from_any
 from electrum.mnemonic import seed_type
 
@@ -121,7 +121,43 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         self.assertEqual(w.get_change_addresses()[0], 'k1GG2sqikuPL4XaH5BWGSCMKyiPkHX5GqM5')
 
     @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
-    def test_electrum_seed_2fa_legacy(self, mock_save_db):
+    def test_electrum_seed_2fa_legacy_pre27(self, mock_save_db):
+        # pre-version-2.7 2fa seed
+        seed_words = 'bind clever room kidney crucial sausage spy edit canvas soul liquid ribbon slam open alpha suffer gate relax voice carpet law hill woman tonight abstract'
+        self.assertEqual(seed_type(seed_words), '2fa')
+
+        xprv1, xpub1, xprv2, xpub2 = trustedcoin.TrustedCoinPlugin.xkeys_from_seed(seed_words, '')
+
+        ks1 = keystore.from_xprv(xprv1)
+        self.assertTrue(isinstance(ks1, keystore.BIP32_KeyStore))
+        self.assertEqual(ks1.xprv, 'xprv9s21ZrQH143K2TsDemiaPqaTuBkW3gns4sGi9f65pWtg27nmmmAut6fErgaHFxj3d4rHgyFKjhvtAUafqF3wwU8Bkou8LefQgBtRWjUKN3V')
+        self.assertEqual(ks1.xpub, 'xpub661MyMwAqRbcEwwgkoFakyXCTDazT9WiS6CJx3VhNrRetv7vKJVARtyihwCVatSsUtVsEYcvdxhvDtkSk8qKV3VVtcL3csz6sQTbGzmEckd')
+        self.assertEqual(ks1.xpub, xpub1)
+
+        ks2 = keystore.from_xprv(xprv2)
+        self.assertTrue(isinstance(ks2, keystore.BIP32_KeyStore))
+        self.assertEqual(ks2.xprv, 'xprv9s21ZrQH143K3r6H1h91TqRECE7tmDB5PYGZDKPuSjefTzNbDMauUMUnjsUSv8X8nuzQsrtGmtCuA51CNz7XimRj2HPYxUxXGGf4KB7M74y')
+        self.assertEqual(ks2.xpub, 'xpub661MyMwAqRbcGLAk7ig1pyMxkFxPAftvkmCA1hoX15BeLnhjktuA29oGb7bh9opQgNERu6iWhwcY6b5bZX57dYsGo7zYjwXTNCryfKuPfek')
+        self.assertEqual(ks2.xpub, xpub2)
+
+        long_user_id, short_id = trustedcoin.get_user_id(
+            {'x1/': {'xpub': xpub1},
+             'x2/': {'xpub': xpub2}})
+        xtype = bip32.xpub_type(xpub1)
+        xpub3 = trustedcoin.make_xpub(trustedcoin.get_signing_xpub(xtype), long_user_id)
+        ks3 = keystore.from_xpub(xpub3)
+        WalletIntegrityHelper.check_xpub_keystore_sanity(self, ks3)
+        self.assertTrue(isinstance(ks3, keystore.BIP32_KeyStore))
+
+        w = WalletIntegrityHelper.create_multisig_wallet([ks1, ks2, ks3], '2of3', config=self.config)
+        self.assertEqual(w.txin_type, 'p2sh')
+
+        self.assertEqual(w.get_receiving_addresses()[0], '3Bw5jczNModhFAbvfwvUHbdGrC2Lh2qRQp')
+        self.assertEqual(w.get_change_addresses()[0], '3Ke6pKrmtSyyQaMob1ES4pk8siAAkRmst9')
+
+    @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
+    def test_electrum_seed_2fa_legacy_post27(self, mock_save_db):
+        # post-version-2.7 2fa seed
         seed_words = 'kiss live scene rude gate step hip quarter bunker oxygen motor glove'
         self.assertEqual(seed_type(seed_words), '2fa')
 
@@ -311,11 +347,11 @@ class TestWalletSending(TestCaseForTestnet):
         super().setUp()
         self.config = SimpleConfig({'electrum_path': self.electrum_path})
 
-    def create_standard_wallet_from_seed(self, seed_words, *, config=None):
+    def create_standard_wallet_from_seed(self, seed_words, *, config=None, gap_limit=2):
         if config is None:
             config = self.config
         ks = keystore.from_seed(seed_words, '', False)
-        return WalletIntegrityHelper.create_standard_wallet(ks, gap_limit=2, config=config)
+        return WalletIntegrityHelper.create_standard_wallet(ks, gap_limit=gap_limit, config=config)
 
     def _bump_fee_p2pkh_when_there_is_a_change_address(self, *, simulate_moving_txs, config):
         wallet = self.create_standard_wallet_from_seed('fold object utility erase deputy output stadium feed stereo usage modify bean',
