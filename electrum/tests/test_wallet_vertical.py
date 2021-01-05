@@ -152,8 +152,8 @@ class TestWalletKeystoreAddressIntegrityForMainnet(ElectrumTestCase):
         w = WalletIntegrityHelper.create_multisig_wallet([ks1, ks2, ks3], '2of3', config=self.config)
         self.assertEqual(w.txin_type, 'p2sh')
 
-        self.assertEqual(w.get_receiving_addresses()[0], '3Bw5jczNModhFAbvfwvUHbdGrC2Lh2qRQp')
-        self.assertEqual(w.get_change_addresses()[0], '3Ke6pKrmtSyyQaMob1ES4pk8siAAkRmst9')
+        self.assertEqual(w.get_receiving_addresses()[0], 'k38mcUeS2ywgC5ckrNEMopidKnitrz29Bho')
+        self.assertEqual(w.get_change_addresses()[0], 'k3GUdZMJSWb2UF2WjHHfmbwkBpF2h8jVQmt')
 
     @mock.patch.object(wallet.Abstract_Wallet, 'save_db')
     def test_electrum_seed_2fa_legacy_post27(self, mock_save_db):
