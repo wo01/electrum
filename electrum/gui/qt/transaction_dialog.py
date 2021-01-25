@@ -215,7 +215,11 @@ class BaseTxDialog(QDialog, MessageBoxMixin):
         # As a result, e.g. we might learn an imported address tx is segwit,
         # or that a beyond-gap-limit address is is_mine.
         # note: this might fetch prev txs over the network.
-        tx.add_info_from_wallet(self.wallet)
+        BlockingWaitingDialog(
+            self,
+            _("Adding info to tx, from wallet and network..."),
+            lambda: tx.add_info_from_wallet(self.wallet),
+        )
 
     def do_broadcast(self):
         self.main_window.push_top_level_window(self)
@@ -640,7 +644,7 @@ class BaseTxDialog(QDialog, MessageBoxMixin):
         locktime_setter_hbox.setSpacing(0)
         locktime_setter_label = TxDetailLabel()
         locktime_setter_label.setText("LockTime: ")
-        self.locktime_e = LockTimeEdit()
+        self.locktime_e = LockTimeEdit(self)
         locktime_setter_hbox.addWidget(locktime_setter_label)
         locktime_setter_hbox.addWidget(self.locktime_e)
         locktime_setter_hbox.addStretch(1)
@@ -827,8 +831,9 @@ class PreviewTxDialog(BaseTxDialog, TxEditor):
     def update_fee_fields(self):
         freeze_fee = self.is_send_fee_frozen()
         freeze_feerate = self.is_send_feerate_frozen()
-        if self.no_dynfee_estimates:
-            size = self.tx.estimated_size()
+        tx = self.tx
+        if self.no_dynfee_estimates and tx:
+            size = tx.estimated_size()
             self.size_e.setAmount(size)
         if self.not_enough_funds or self.no_dynfee_estimates:
             if not freeze_fee:
@@ -838,7 +843,7 @@ class PreviewTxDialog(BaseTxDialog, TxEditor):
             self.feerounding_icon.setVisible(False)
             return
 
-        tx = self.tx
+        assert tx is not None
         size = tx.estimated_size()
         fee = tx.get_fee()
 

@@ -40,6 +40,7 @@ from typing import Optional, TYPE_CHECKING, Sequence, List, Union
 
 from PyQt5.QtGui import QPixmap, QKeySequence, QIcon, QCursor, QFont
 from PyQt5.QtCore import Qt, QRect, QStringListModel, QSize, pyqtSignal
+from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (QMessageBox, QComboBox, QSystemTrayIcon, QTabWidget,
                              QMenuBar, QFileDialog, QCheckBox, QLabel,
                              QVBoxLayout, QGridLayout, QLineEdit,
@@ -68,7 +69,7 @@ from electrum.transaction import (Transaction, PartialTxInput,
                                   PartialTransaction, PartialTxOutput)
 from electrum.wallet import (Multisig_Wallet, CannotBumpFee, Abstract_Wallet,
                              sweep_preparations, InternalAddressCorruption,
-                             CannotDoubleSpendTx)
+                             CannotDoubleSpendTx, CannotCPFP)
 from electrum.version import ELECTRUM_VERSION
 from electrum.network import (Network, TxBroadcastError, BestEffortRequestFailed,
                               UntrustedServerReturnedError, NetworkException)
@@ -1115,7 +1116,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         qr_icon = "qrcode_white.png" if ColorScheme.dark_scheme else "qrcode.png"
         self.receive_address_e.addButton(qr_icon, qr_show, _("Show as QR code"))
 
-        self.receive_requests_label = QLabel(_('Incoming payments'))
+        self.receive_requests_label = QLabel(_('Receive queue'))
 
         from .request_list import RequestList
         self.request_list = RequestList(self)
@@ -1372,7 +1373,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
 
         self.set_onchain(False)
 
-        self.invoices_label = QLabel(_('Outgoing payments'))
+        self.invoices_label = QLabel(_('Send queue'))
         from .invoice_list import InvoiceList
         self.invoice_list = InvoiceList(self)
 
@@ -1411,9 +1412,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
                 # Check if we had enough funds excluding fees,
                 # if so, still provide opportunity to set lower fees.
                 tx = make_tx(0)
-        except (MultipleSpendMaxTxOutputs, NotEnoughFunds) as e:
+        except MultipleSpendMaxTxOutputs as e:
             self.max_button.setChecked(False)
             self.show_error(str(e))
+            return
+        except NotEnoughFunds as e:
+            self.max_button.setChecked(False)
+            text = self.get_text_not_enough_funds_mentioning_frozen()
+            self.show_error(text)
             return
 
         self.max_button.setChecked(True)
@@ -1511,19 +1517,26 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
     def on_request_status(self, wallet, key, status):
         if wallet != self.wallet:
             return
-        if key not in self.wallet.receive_requests:
+        req = self.wallet.receive_requests.get(key)
+        if req is None:
             return
         if status == PR_PAID:
             self.notify(_('Payment received') + '\n' + key)
-            self.need_update.set()
+            self.request_list.update()
+        else:
+            self.request_list.update_item(key, req)
 
     def on_invoice_status(self, wallet, key):
         if wallet != self.wallet:
             return
-        req = self.wallet.get_invoice(key)
-        if req is None:
+        invoice = self.wallet.get_invoice(key)
+        if invoice is None:
             return
-        self.invoice_list.update_item(key, req)
+        status = self.wallet.get_invoice_status(invoice)
+        if status == PR_PAID:
+            self.invoice_list.update()
+        else:
+            self.invoice_list.update_item(key, invoice)
 
     def on_payment_succeeded(self, wallet, key):
         description = self.wallet.get_label(key)
@@ -1613,6 +1626,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         """
         return self.utxo_list.get_spend_list()
 
+    def get_text_not_enough_funds_mentioning_frozen(self) -> str:
+        text = _("Not enough funds")
+        frozen_bal = sum(self.wallet.get_frozen_balance())
+        if frozen_bal:
+            text += " ({} {} {})".format(
+                self.format_amount(frozen_bal).strip(), self.base_unit(), _("are frozen")
+            )
+        return text
+
     def pay_onchain_dialog(
             self, inputs: Sequence[PartialTxInput],
             outputs: List[PartialTxOutput], *,
@@ -1637,7 +1659,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             # Check if we had enough funds excluding fees,
             # if so, still provide opportunity to set lower fees.
             if not d.have_enough_funds_assuming_zero_fees():
-                self.show_message(_('Not Enough Funds'))
+                text = self.get_text_not_enough_funds_mentioning_frozen()
+                self.show_message(text)
                 return
 
         # shortcut to advanced preview (after "enough funds" check!)
@@ -1932,7 +1955,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         self.utxo_list.update()
 
     def set_frozen_state_of_coins(self, utxos: Sequence[PartialTxInput], freeze: bool):
-        self.wallet.set_frozen_state_of_coins(utxos, freeze)
+        utxos_str = {utxo.prevout.to_str() for utxo in utxos}
+        self.wallet.set_frozen_state_of_coins(utxos_str, freeze)
         self.utxo_list.update()
 
     def create_list_tab(self, l, toolbar=None):
@@ -2120,9 +2144,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             'lnutil': lnutil,
         })
 
-        c = commands.Commands(config=self.config,
-                              network=self.network,
-                              callback=lambda: self.console.set_json(True))
+        c = commands.Commands(
+            config=self.config,
+            daemon=self.gui_object.daemon,
+            network=self.network,
+            callback=lambda: self.console.set_json(True))
         methods = {}
         def mkfunc(f, method):
             return lambda *args, **kwargs: f(method,
@@ -3104,7 +3130,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         vbox.addLayout(Buttons(CloseButton(d)))
         d.exec_()
 
-    def cpfp(self, parent_tx: Transaction, new_tx: PartialTransaction) -> None:
+    def cpfp_dialog(self, parent_tx: Transaction) -> None:
+        new_tx = self.wallet.cpfp(parent_tx, 0)
         total_size = parent_tx.estimated_size() + new_tx.estimated_size()
         parent_txid = parent_tx.txid()
         assert parent_txid
@@ -3187,7 +3214,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         if fee > max_fee:
             self.show_error(_('Max fee exceeded'))
             return
-        new_tx = self.wallet.cpfp(parent_tx, fee)
+        try:
+            new_tx = self.wallet.cpfp(parent_tx, fee)
+        except CannotCPFP as e:
+            self.show_error(str(e))
+            return
         new_tx.set_rbf(False)
         self.show_transaction(new_tx)
 
@@ -3207,7 +3238,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
             return False
         return True
 
-    def bump_fee_dialog(self, tx: Transaction):
+    def _rbf_dialog(self, tx: Transaction, func, title, help_text):
         txid = tx.txid()
         assert txid
         if not isinstance(tx, PartialTransaction):
@@ -3219,107 +3250,85 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin, Logger):
         tx_label = self.wallet.get_label_for_txid(txid)
         tx_size = tx.estimated_size()
         old_fee_rate = fee / tx_size  # sat/vbyte
-        d = WindowModalDialog(self, _('Bump Fee'))
+        d = WindowModalDialog(self, title)
         vbox = QVBoxLayout(d)
-        vbox.addWidget(WWLabel(_("Increase your transaction's fee to improve its position in mempool.")))
+        vbox.addWidget(WWLabel(help_text))
+
+        ok_button = OkButton(d)
+        warning_label = WWLabel('\n')
+        warning_label.setStyleSheet(ColorScheme.RED.as_stylesheet())
+        feerate_e = FeerateEdit(lambda: 0)
+        feerate_e.setAmount(max(old_fee_rate * 1.5, old_fee_rate + 1))
+        def on_feerate():
+            fee_rate = feerate_e.get_amount()
+            warning_text = '\n'
+            if fee_rate is not None:
+                try:
+                    new_tx = func(fee_rate)
+                except Exception as e:
+                    new_tx = None
+                    warning_text = str(e).replace('\n',' ')
+            else:
+                new_tx = None
+            ok_button.setEnabled(new_tx is not None)
+            warning_label.setText(warning_text)
+
+        feerate_e.textChanged.connect(on_feerate)
+        def on_slider(dyn, pos, fee_rate):
+            fee_slider.activate()
+            if fee_rate is not None:
+                feerate_e.setAmount(fee_rate / 1000)
+        fee_slider = FeeSlider(self, self.config, on_slider)
+        fee_combo = FeeComboBox(fee_slider)
+        fee_slider.deactivate()
+        feerate_e.textEdited.connect(fee_slider.deactivate)
 
         grid = QGridLayout()
         grid.addWidget(QLabel(_('Current Fee') + ':'), 0, 0)
         grid.addWidget(QLabel(self.format_amount(fee) + ' ' + self.base_unit()), 0, 1)
         grid.addWidget(QLabel(_('Current Fee rate') + ':'), 1, 0)
         grid.addWidget(QLabel(self.format_fee_rate(1000 * old_fee_rate)), 1, 1)
-
         grid.addWidget(QLabel(_('New Fee rate') + ':'), 2, 0)
-        def on_textedit_rate():
-            fee_slider.deactivate()
-        feerate_e = FeerateEdit(lambda: 0)
-        feerate_e.setAmount(max(old_fee_rate * 1.5, old_fee_rate + 1))
-        feerate_e.textEdited.connect(on_textedit_rate)
         grid.addWidget(feerate_e, 2, 1)
-
-        def on_slider_rate(dyn, pos, fee_rate):
-            fee_slider.activate()
-            if fee_rate is not None:
-                feerate_e.setAmount(fee_rate / 1000)
-        fee_slider = FeeSlider(self, self.config, on_slider_rate)
-        fee_combo = FeeComboBox(fee_slider)
-        fee_slider.deactivate()
         grid.addWidget(fee_slider, 3, 1)
         grid.addWidget(fee_combo, 3, 2)
-
         vbox.addLayout(grid)
         cb = QCheckBox(_('Final'))
         vbox.addWidget(cb)
-        vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
+        vbox.addWidget(warning_label)
+        vbox.addLayout(Buttons(CancelButton(d), ok_button))
         if not d.exec_():
             return
         is_final = cb.isChecked()
         new_fee_rate = feerate_e.get_amount()
         try:
-            new_tx = self.wallet.bump_fee(
-                tx=tx,
-                txid=txid,
-                new_fee_rate=new_fee_rate,
-                coins=self.get_coins(),
-            )
-        except CannotBumpFee as e:
+            new_tx = func(new_fee_rate)
+        except Exception as e:
             self.show_error(str(e))
             return
         if is_final:
             new_tx.set_rbf(False)
         self.show_transaction(new_tx, tx_desc=tx_label)
 
+    def bump_fee_dialog(self, tx: Transaction):
+        title = _('Bump Fee')
+        help_text = _("Increase your transaction's fee to improve its position in mempool.")
+        def func(new_fee_rate):
+            return self.wallet.bump_fee(
+                tx=tx,
+                txid=tx.txid(),
+                new_fee_rate=new_fee_rate,
+                coins=self.get_coins())
+        self._rbf_dialog(tx, func, title, help_text)
+
     def dscancel_dialog(self, tx: Transaction):
-        txid = tx.txid()
-        assert txid
-        if not isinstance(tx, PartialTransaction):
-            tx = PartialTransaction.from_tx(tx)
-        if not self._add_info_to_tx_from_wallet_and_network(tx):
-            return
-        fee = tx.get_fee()
-        assert fee is not None
-        tx_size = tx.estimated_size()
-        old_fee_rate = fee / tx_size  # sat/vbyte
-        d = WindowModalDialog(self, _('Cancel transaction'))
-        vbox = QVBoxLayout(d)
-        vbox.addWidget(WWLabel(_("Cancel an unconfirmed RBF transaction by double-spending "
-                                 "its inputs back to your wallet with a higher fee.")))
-
-        grid = QGridLayout()
-        grid.addWidget(QLabel(_('Current Fee') + ':'), 0, 0)
-        grid.addWidget(QLabel(self.format_amount(fee) + ' ' + self.base_unit()), 0, 1)
-        grid.addWidget(QLabel(_('Current Fee rate') + ':'), 1, 0)
-        grid.addWidget(QLabel(self.format_fee_rate(1000 * old_fee_rate)), 1, 1)
-
-        grid.addWidget(QLabel(_('New Fee rate') + ':'), 2, 0)
-        def on_textedit_rate():
-            fee_slider.deactivate()
-        feerate_e = FeerateEdit(lambda: 0)
-        feerate_e.setAmount(max(old_fee_rate * 1.5, old_fee_rate + 1))
-        feerate_e.textEdited.connect(on_textedit_rate)
-        grid.addWidget(feerate_e, 2, 1)
-
-        def on_slider_rate(dyn, pos, fee_rate):
-            fee_slider.activate()
-            if fee_rate is not None:
-                feerate_e.setAmount(fee_rate / 1000)
-        fee_slider = FeeSlider(self, self.config, on_slider_rate)
-        fee_combo = FeeComboBox(fee_slider)
-        fee_slider.deactivate()
-        grid.addWidget(fee_slider, 3, 1)
-        grid.addWidget(fee_combo, 3, 2)
-
-        vbox.addLayout(grid)
-        vbox.addLayout(Buttons(CancelButton(d), OkButton(d)))
-        if not d.exec_():
-            return
-        new_fee_rate = feerate_e.get_amount()
-        try:
-            new_tx = self.wallet.dscancel(tx=tx, new_fee_rate=new_fee_rate)
-        except CannotDoubleSpendTx as e:
-            self.show_error(str(e))
-            return
-        self.show_transaction(new_tx)
+        title = _('Cancel transaction')
+        help_text = _(
+            "Cancel an unconfirmed RBF transaction by double-spending "
+            "its inputs back to your wallet with a higher fee.")
+        def func(new_fee_rate):
+            return self.wallet.dscancel(tx=tx, new_fee_rate=new_fee_rate)
+        self._rbf_dialog(tx, func, title, help_text)
 
     def save_transaction_into_wallet(self, tx: Transaction):
         win = self.top_level_window()
